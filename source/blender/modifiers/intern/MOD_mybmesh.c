@@ -40,8 +40,10 @@
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
 #include "BLI_buffer.h"
+#include "BLI_alloca.h"
 
 #include "BKE_cdderivedmesh.h"
+#include "BKE_library_query.h"
 #include "BKE_modifier.h"
 #include "BKE_deform.h"
 
@@ -53,7 +55,11 @@
 #include "depsgraph_private.h"
 
 //TODO this modifier depends on OSD. So if it's not compiled in, remove this modifier
-#include <opensubdiv/osdutil/evaluator_capi.h>
+
+#include "intern/CCGSubSurf.h"
+#include "intern/CCGSubSurf_intern.h"
+#include "opensubdiv_capi.h"
+#include "opensubdiv_converter_capi.h"
 
 struct OpenSubdiv_EvaluatorDescr;
 
@@ -200,7 +206,7 @@ static BMVert *split_edge_and_move_vert(BMesh *bm, BMEdge *edge, const float new
 	BM_elem_flag_enable(edge, BM_ELEM_TAG);
 	BMO_op_initf(bm, &div_op, BMO_FLAG_DEFAULTS,
 			"subdivide_edges edges=%he cuts=%i quad_corner_type=%i use_single_edge=%b",
-			BM_ELEM_TAG, 1, SUBD_STRAIGHT_CUT, true, "geom.out");
+			BM_ELEM_TAG, 1, SUBD_CORNER_STRAIGHT_CUT, true, "geom.out");
 
 	BMO_op_exec(bm, &div_op);
 
@@ -231,7 +237,7 @@ static BMVert* split_edge_and_move_cusp(BMesh *bm, BMEdge *edge, const float new
 	BM_elem_flag_enable(edge, BM_ELEM_TAG);
 	BMO_op_initf(bm, &div_op, BMO_FLAG_DEFAULTS,
 			"subdivide_edges edges=%he cuts=%i quad_corner_type=%i use_single_edge=%b",
-			BM_ELEM_TAG, 1, SUBD_STRAIGHT_CUT, true, "geom.out");
+			BM_ELEM_TAG, 1, SUBD_CORNER_STRAIGHT_CUT, true, "geom.out");
 
 	BMO_op_exec(bm, &div_op);
 
@@ -2227,7 +2233,7 @@ static bool is_C_vert(BMVert *v, BLI_Buffer *C_verts){
 
 static bool point_inside_v2(const float mat[3][3], const float point[2], BMFace *f){
 	//TODO maybe add a sanity check to see if the face is not a quad or a triangle
-	float mat_coords[f->len][2];
+	float (*mat_coords)[2] = BLI_array_alloca(mat_coords, f->len);
 	BMVert *vert;
 	BMIter iter_v;
 	int vert_idx;
@@ -2409,7 +2415,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 		BMLoop *first_loop = BM_face_vert_share_loop( vert->e->l->f, vert );
 		BMLoop *cur_loop = first_loop;
 		BMEdge *cur_edge;
-		BMFace *faces[edge_count];
+		BMFace **faces = BLI_array_alloca(faces, edge_count);
 
 		cur_edge = vert->e;
 
@@ -2639,7 +2645,7 @@ static void radial_insertion( MeshData *m_d ){
 
 		int face_i;
 		int face_count = BM_vert_face_count(vert);
-		BMFace *face_arr[face_count];
+		BMFace **face_arr = BLI_array_alloca(face_arr, face_count);
 
 		/*
 		if( BM_elem_index_get(vert) != 1020 ){
@@ -2971,7 +2977,7 @@ static void radial_flip( MeshData *m_d ){
 		int edge_i;
 		BMVert *vert = BLI_buffer_at(m_d->C_verts, BMVert*, vert_i);
 		int edge_count = BM_vert_edge_count(vert);
-		BMEdge *edge_arr[edge_count];
+		BMEdge **edge_arr = BLI_array_alloca(edge_arr, edge_count);
 
 		BM_ITER_ELEM_INDEX (e, &iter_e, vert, BM_EDGES_OF_VERT, edge_idx) {
 			edge_arr[edge_idx] = e;
@@ -3040,7 +3046,7 @@ static void radial_flip( MeshData *m_d ){
 				{
 					int edge_count = BM_vert_edge_count(edge_vert);
 					BMEdge *cur_e = e;
-					BMEdge *edge_arr[edge_count];
+					BMEdge **edge_arr = BLI_array_alloca(edge_arr, edge_count);
 					int edge_idx = 0;
 
 					BMEdge *rad1_edge = BM_edge_exists(l1->v, edge_vert);
@@ -3703,7 +3709,7 @@ static void optimization( MeshData *m_d ){
 								inface->face->mat_nr = 0;
 								inface->face = NULL;
 								split_edge_and_move_vert(m_d->bm, edge, P, du, dv);
-								printf("Opti edge wiggle\N");
+								printf("Opti edge wiggle\n");
 								break;
 							}
 						}
@@ -3805,7 +3811,38 @@ static void optimization( MeshData *m_d ){
 	BLI_buffer_free(&inco_faces);
 }
 
-static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(BMesh *bm){
+static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh  *dm){
+
+	struct OpenSubdiv_EvaluatorDescr *osd_evaluator;
+	int subdiv_levels = 1; //Need at least one subdiv level to compute the limit surface
+
+    CCGSubSurf *ss;
+
+	OpenSubdiv_Converter converter;
+	OpenSubdiv_TopologyRefinerDescr *topology_refiner;
+
+	CCGMeshIFC ifc;
+
+	ifc.simpleSubdiv = 0;
+
+	ss = ccgSubSurf_new(&ifc, subdiv_levels, NULL, NULL);
+
+    ccgSubSurf_converter_setup_from_derivedmesh(ss, dm, &converter);
+
+	topology_refiner = openSubdiv_createTopologyRefinerDescr(&converter);
+
+	ccgSubSurf_converter_free(&converter);
+	ccgSubSurf_free(ss);
+
+	osd_evaluator = openSubdiv_createEvaluatorDescr(topology_refiner, subdiv_levels);
+
+	if (osd_evaluator == NULL) {
+		BLI_assert(!"OpenSubdiv initialization failed, should not happen.");
+		return NULL;
+	}
+
+	return osd_evaluator;
+	/*
 	//TODO create FAR meshes instead. (Perhaps the code in contour subdiv can help?)
 	int subdiv_levels = 1;
 	int no_of_verts = BM_mesh_elem_count(bm, BM_VERT);
@@ -3843,6 +3880,7 @@ static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(BMesh *bm){
 			no_of_verts);
 
 	return osd_evaluator;
+	*/
 }
 
 static void debug_colorize(BMesh *bm, const float cam_loc[3]){
@@ -3908,7 +3946,6 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 	BMesh *bm_orig, *bm;
 	bool quad_mesh = true;
 
-	//CCGSubSurf *ss;
 	struct OpenSubdiv_EvaluatorDescr *osd_eval;
 
 	bm = DM_to_bmesh(dm, true);
@@ -3944,14 +3981,14 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 	//Keep a copy of the original mesh
 	bm_orig = DM_to_bmesh(dm, true);
 
-	osd_eval = create_osd_eval(bm);
+	osd_eval = create_osd_eval(dm);
 
 	// (6.1) Initialization
 	verts_to_limit(bm, osd_eval);
 
 	if (mmd->flag & MOD_MYBMESH_TRIANG) {
 		//TODO check if shortest diagonal is better
-		BM_mesh_triangulate(bm, MOD_TRIANGULATE_QUAD_FIXED, MOD_TRIANGULATE_NGON_BEAUTY, false, NULL, NULL);
+		BM_mesh_triangulate(bm, MOD_TRIANGULATE_QUAD_FIXED, MOD_TRIANGULATE_NGON_BEAUTY, false, NULL, NULL, NULL);
 	}
 
 	if( mmd->camera_ob == NULL){
@@ -4093,28 +4130,41 @@ static DerivedMesh *applyModifier(ModifierData *md, Object *ob,
 	return result;
 }
 
-static void foreachObjectLink(ModifierData *md, Object *ob,
-							void (*walk)(void *userData, Object *ob, Object **obpoin),
-							void *userData)
+static void foreachObjectLink(
+        ModifierData *md, Object *ob,
+        ObjectWalkFunc walk, void *userData)
 {
 	MyBMeshModifierData *mmd = (MyBMeshModifierData *)md;
 
-	walk(userData, ob, &mmd->camera_ob);
+	walk(userData, ob, &mmd->camera_ob, IDWALK_NOP);
 }
 
 static void updateDepgraph(ModifierData *md, DagForest *forest,
-						struct Scene *UNUSED(scene),
-						Object *UNUSED(ob),
-						DagNode *obNode)
+		struct Main *UNUSED(bmain),
+		struct Scene *UNUSED(scene),
+		Object *UNUSED(ob),
+		DagNode *obNode)
 {
 	MyBMeshModifierData *mmd = (MyBMeshModifierData *)md;
 
 	if (mmd->camera_ob) {
 		DagNode *latNode = dag_get_node(forest, mmd->camera_ob);
 
-		dag_add_relation(forest, latNode, obNode,
-				DAG_RL_DATA_DATA | DAG_RL_OB_DATA, "MyBmesh Modifier");
+		dag_add_relation(forest, latNode, obNode, DAG_RL_OB_DATA, "MyBmesh Modifier");
 	}
+}
+
+static void updateDepsgraph(ModifierData *md,
+		struct Main *UNUSED(bmain),
+		struct Scene *UNUSED(scene),
+		Object *ob,
+		struct DepsNodeHandle *node)
+{
+	MyBMeshModifierData *mmd = (MyBMeshModifierData *)md;
+	if (mmd->camera_ob != NULL) {
+		DEG_add_object_relation(node, mmd->camera_ob, DEG_OB_COMP_TRANSFORM, "MyBmesh Modifier");
+	}
+	DEG_add_object_relation(node, ob, DEG_OB_COMP_TRANSFORM, "MyBmesh Modifier");
 }
 
 static bool dependsOnNormals(ModifierData *UNUSED(md))
@@ -4143,8 +4193,8 @@ ModifierTypeInfo modifierType_MyBMesh = {
 	/* requiredDataMask */  NULL,
 	/* freeData */          NULL,
 	/* isDisabled */        NULL,
-	//TODO implement depgraph
 	/* updateDepgraph */    updateDepgraph,
+	/* updateDepsgraph */   updateDepsgraph,
 	/* dependsOnTime */     NULL,
 	/* dependsOnNormals */  dependsOnNormals,
 	/* foreachObjectLink */ foreachObjectLink,
