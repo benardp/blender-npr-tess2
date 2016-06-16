@@ -138,7 +138,7 @@ static void verts_to_limit(BMesh *bm, struct OpenSubdiv_EvaluatorDescr *eval){
 				}
 				openSubdiv_evaluateLimit(eval, i, u, v, vert->co, du, dv);
 				//Adjust vert normal to the limit normal
-				cross_v3_v3v3(vert->no, dv, du);
+				cross_v3_v3v3(vert->no, du, dv);
 				normalize_v3(vert->no);
 				//printf("j: %d\n",j);
 			}
@@ -152,7 +152,7 @@ static bool calc_if_B(const float cam_loc[3], const float P[3], const float du[3
 	//Is the point back facing?
 	float nor[3], view_vec[3];
 
-	cross_v3_v3v3(nor, dv, du);
+	cross_v3_v3v3(nor, du, dv);
 	//TODO normalization is probably not needed
 	normalize_v3(nor);
 	sub_v3_v3v3(view_vec, cam_loc, P);
@@ -174,7 +174,7 @@ static float get_facing_dir(const float cam_loc[3], const float P[3], const floa
 	//Get if point is back facing (-) or front facing (+). Zero if it's directly on the contour
 	float nor[3], view_vec[3];
 
-	cross_v3_v3v3(nor, dv, du);
+	cross_v3_v3v3(nor, du, dv);
 	//TODO normalization is probably not needed
 	normalize_v3(nor);
 	sub_v3_v3v3(view_vec, cam_loc, P);
@@ -217,7 +217,7 @@ static BMVert *split_edge_and_move_vert(BMesh *bm, BMEdge *edge, const float new
 
 	copy_v3_v3(vert->co, new_pos);
 	//Adjust vert normal to the limit normal
-	cross_v3_v3v3(vert->no, dv, du);
+	cross_v3_v3v3(vert->no, du, dv);
 	normalize_v3(vert->no);
 
 	BMO_op_finish(bm, &div_op);
@@ -362,6 +362,9 @@ static void split_BB_FF_edges(MeshData *m_d) {
 		get_uv_coord(v2, f, &v2_u, &v2_v);
 
 		//TODO perhaps we need to check the limit normal and not the vertex normal?
+		//EDIT: If we update the vert normals in the step were we move them to their
+		//limit pos, we don't need to relalc it here.
+		//TODO Make sure you can skip the move to vert step later
 		/*
 		{
 			float P1[3], P2[3], du[3], dv[3];
@@ -449,7 +452,7 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 	float I[2][2], II[2][2];
 	openSubdiv_evaluateLimit(eval, face_index, u, v, P, du, dv);
 
-	cross_v3_v3v3(no, dv, du);
+	cross_v3_v3v3(no, du, dv);
 	normalize_v3(no);
 
 	//http://en.wikipedia.org/wiki/Principal_curvature
@@ -1067,7 +1070,7 @@ static void mult_face_search( BMFace *f, BMFace *f2, const float v1_uv[2], const
 				step_len = step_len/2.0f;
 			}
 
-			cross_v3_v3v3(new_no, dv, du);
+			cross_v3_v3v3(new_no, du, dv);
 			normalize_v3(new_no);
 
 			if( len_v3v3(P, e->v1->co) < BM_edge_calc_length(e) * 0.2f ){
@@ -1139,7 +1142,7 @@ static bool bisect_search(const float v1_uv[2], const float v2_uv[2], BMEdge *e,
 		step_len = step_len/2.0f;
 	}
 
-	cross_v3_v3v3(new_no, dv, du);
+	cross_v3_v3v3(new_no, du, dv);
 	normalize_v3(new_no);
 
 	if( len_v3v3(P, e->v1->co) < BM_edge_calc_length(e) * 0.2f ){
@@ -1444,7 +1447,7 @@ static bool cusp_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float ca
 
 		cent_tri_v3(res_uv, uv1, uv2, uv3);
 		openSubdiv_evaluateLimit(eval, face_index, res_uv[0], res_uv[1], cusp_co, du, dv);
-		cross_v3_v3v3(cusp_no, dv, du);
+		cross_v3_v3v3(cusp_no, du, dv);
 
 		copy_v3_v3(cusp->cusp_co, cusp_co);
 		copy_v3_v3(cusp->cusp_no, cusp_no);
@@ -1874,7 +1877,7 @@ static void cusp_detection( MeshData *m_d ){
 									}
 								}
 
-								cross_v3_v3v3(new_no, dv, du);
+								cross_v3_v3v3(new_no, du, dv);
 								normalize_v3(new_no);
 
 								//Can we shift this vertex?
@@ -2292,7 +2295,7 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 	float mat[3][3];
 	float new_norm[3];
 
-	cross_v3_v3v3(new_norm, dv, du);
+	cross_v3_v3v3(new_norm, du, dv);
 	normalize_v3(new_norm);
 
 	axis_dominant_v3_to_m3(mat, new_norm);
@@ -3965,6 +3968,9 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 	verts_to_limit(bm, osd_eval);
 
 	if (mmd->flag & MOD_MYBMESH_TRIANG) {
+        //TODO see if we don't need to recalc normals here (BM_mesh_triangulate complains otherwise)
+		BM_mesh_normals_update(bm);
+
 		//TODO check if shortest diagonal is better
 		BM_mesh_triangulate(bm, MOD_TRIANGULATE_QUAD_FIXED, MOD_TRIANGULATE_NGON_BEAUTY, false, NULL, NULL, NULL);
 	}
