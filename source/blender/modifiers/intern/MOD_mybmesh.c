@@ -3811,7 +3811,7 @@ static void optimization( MeshData *m_d ){
 	BLI_buffer_free(&inco_faces);
 }
 
-static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh  *dm){
+static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh *dm, BMesh *bm){
 
 	struct OpenSubdiv_EvaluatorDescr *osd_evaluator;
 	int subdiv_levels = 1; //Need at least one subdiv level to compute the limit surface
@@ -3841,33 +3841,11 @@ static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh  *dm){
 		return NULL;
 	}
 
-	return osd_evaluator;
-	/*
-	//TODO create FAR meshes instead. (Perhaps the code in contour subdiv can help?)
-	int subdiv_levels = 1;
-	int no_of_verts = BM_mesh_elem_count(bm, BM_VERT);
-
-	int j;
-	int face_vert_index[4];
-	float vert_array[3 * no_of_verts];
-
 	BMIter iter_v, iter_f;
 	BMVert *vert;
-	BMFace *f;
-
-	struct OpenSubdiv_EvaluatorDescr *osd_evaluator;
-	osd_evaluator = openSubdiv_createEvaluatorDescr(no_of_verts);
-
-	BM_ITER_MESH (f, &iter_f, bm, BM_FACES_OF_MESH) {
-		BM_ITER_ELEM_INDEX (vert, &iter_v, f, BM_VERTS_OF_FACE, j) {
-			face_vert_index[j] = BM_elem_index_get(vert);
-		}
-		//TODO this will only work with quad meshes. Set up checks so only quad meshes are passed through.
-		openSubdiv_createEvaluatorDescrFace(osd_evaluator, 4, face_vert_index);
-	}
-
-	//TODO add check to see if this fails
-	openSubdiv_finishEvaluatorDescr(osd_evaluator, subdiv_levels, OSD_SCHEME_CATMARK);
+	int no_of_verts = BM_mesh_elem_count(bm, BM_VERT);
+	int j;
+	float *vert_array = BLI_array_alloca(vert_array, 3 * no_of_verts);
 
 	BM_ITER_MESH_INDEX (vert, &iter_v, bm, BM_VERTS_OF_MESH, j) {
 		vert_array[3*j] = vert->co[0];
@@ -3877,10 +3855,10 @@ static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh  *dm){
 
 	openSubdiv_setEvaluatorCoarsePositions(osd_evaluator,
 			vert_array,
+			0,
 			no_of_verts);
 
 	return osd_evaluator;
-	*/
 }
 
 static void debug_colorize(BMesh *bm, const float cam_loc[3]){
@@ -3981,7 +3959,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 	//Keep a copy of the original mesh
 	bm_orig = DM_to_bmesh(dm, true);
 
-	osd_eval = create_osd_eval(dm);
+	osd_eval = create_osd_eval(dm, bm_orig);
 
 	// (6.1) Initialization
 	verts_to_limit(bm, osd_eval);
