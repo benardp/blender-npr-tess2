@@ -2485,8 +2485,6 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 				int i, face_index;
 				BMFace *orig_face;
 				Vert_buf v_buf;
-				float prev_val = 0;
-				bool changed_val = false;
 				/*
 				print_v3("cent", cent);
 				print_v3("edge1_mid", edge1_mid);
@@ -2501,7 +2499,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 					//printf("UV space\n");
 					orig_face = face_ids[0];
 					face_index = BM_elem_index_get(face_ids[0]);
-					for( i = 0; i < 20; i++ ){
+					for( i = 0; i < 10; i++ ){
 						interp_v2_v2v2( uv_P, uvs[0], uvs[search_id], step);
 						openSubdiv_evaluateLimit(m_d->eval, face_index, uv_P[0], uv_P[1], P, du, dv);
 
@@ -2522,27 +2520,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 							step -= step_len;
 						}
 
-						if( !(prev_val == 0) && prev_val != search_val ){
-							//Because we are interpolating in coordinate space (and using the limit surface to get new points)
-							//we need to be able to go beyond 0 and 1 (so the final step could be 1.2 etc...)
-							step_len = step_len/2.0f;
-							changed_val = true;
-						}
-						prev_val = search_val;
-
-						if( i == 9 && !changed_val ){
-							//TODO it should not be able to get the wrong edge to search with
-							//but it seems like this is the case in some places...
-							changed_val = true; //Do not try this again
-							i = 0;
-							step = 0.5f;
-							step_len = 0.25f;
-							if(search_id == 2){
-								search_id = 1;
-							} else {
-								search_id = 2;
-							}
-						}
+						step_len = step_len/2.0f;
 					}
 				} else {
 					//Work in coord space
@@ -2556,7 +2534,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 						copy_v3_v3(p, edge2_mid);
 					}
 
-					for( i = 0; i < 20; i++ ){
+					for( i = 0; i < 10; i++ ){
 						interp_v3_v3v3(cur_p, cent, p, step);
 
 						for ( j = 0; j < edge_count; j++) {
@@ -2591,27 +2569,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 							step -= step_len;
 						}
 
-						if( !(prev_val == 0) && prev_val != search_val ){
-							//Because we are interpolating in coordinate space (and using the limit surface to get new points)
-							//we need to be able to go beyond 0 and 1 (so the final step could be 1.2 etc...)
-							step_len = step_len/2.0f;
-							changed_val = true;
-						}
-						prev_val = search_val;
-
-						if( i == 9 && !changed_val ){
-							//TODO it should not be able to get the wrong edge to search with
-							//but it seems like this is the case in some places...
-							changed_val = true; //Do not try this again
-							i = 0;
-							step = 0.5f;
-							step_len = 0.25f;
-							if(search_id == 2){
-								copy_v3_v3(p, edge1_mid);
-							} else {
-								copy_v3_v3(p, edge2_mid);
-							}
-						}
+						step_len = step_len/2.0f;
 					}
 				}
 
@@ -3826,6 +3784,11 @@ static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh *dm, BMesh 
 
 	CCGMeshIFC ifc;
 
+	//TODO declare sizes so we don't get any warnings later.
+	//Is this really needed?
+	ifc.vertUserSize = ifc.edgeUserSize = ifc.faceUserSize = 8;
+	ifc.numLayers = 3;
+	ifc.vertDataSize = sizeof(float) * 3;
 	ifc.simpleSubdiv = 0;
 
 	ss = ccgSubSurf_new(&ifc, subdiv_levels, NULL, NULL);
