@@ -3932,6 +3932,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 
 	if (mmd->flag & MOD_MYBMESH_TRIANG) {
 		//TODO check if shortest diagonal is better
+		//TODO write your own quad -> tris function
 		BM_mesh_triangulate(bm, MOD_TRIANGULATE_QUAD_FIXED, MOD_TRIANGULATE_NGON_BEAUTY, false, NULL, NULL, NULL);
 	}
 
