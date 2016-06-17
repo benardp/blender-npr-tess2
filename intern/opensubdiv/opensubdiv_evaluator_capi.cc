@@ -354,8 +354,8 @@ OpenSubdiv_EvaluatorDescr *openSubdiv_createEvaluatorDescr(
 	/* Apply uniform refinement to the mesh so that we can use the
 	 * limit evaluation API features.
 	 */
-	TopologyRefiner::UniformOptions options(subsurf_level);
-	refiner->RefineUniform(options);
+	TopologyRefiner::AdaptiveOptions options(subsurf_level);
+	refiner->RefineAdaptive(options);
 
 	/* Generate stencil table to update the bi-cubic patches control
 	 * vertices after they have been re-posed (both for vertex & varying

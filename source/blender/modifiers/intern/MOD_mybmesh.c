@@ -3931,9 +3931,6 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 	verts_to_limit(bm, osd_eval);
 
 	if (mmd->flag & MOD_MYBMESH_TRIANG) {
-        //TODO see if we don't need to recalc normals here (BM_mesh_triangulate complains otherwise)
-		BM_mesh_normals_update(bm);
-
 		//TODO check if shortest diagonal is better
 		BM_mesh_triangulate(bm, MOD_TRIANGULATE_QUAD_FIXED, MOD_TRIANGULATE_NGON_BEAUTY, false, NULL, NULL, NULL);
 	}
