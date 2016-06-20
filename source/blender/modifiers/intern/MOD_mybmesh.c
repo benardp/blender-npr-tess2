@@ -1448,6 +1448,7 @@ static bool cusp_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float ca
 		cent_tri_v3(res_uv, uv1, uv2, uv3);
 		openSubdiv_evaluateLimit(eval, face_index, res_uv[0], res_uv[1], cusp_co, du, dv);
 		cross_v3_v3v3(cusp_no, du, dv);
+		normalize_v3(cusp_no);
 
 		copy_v3_v3(cusp->cusp_co, cusp_co);
 		copy_v3_v3(cusp->cusp_no, cusp_no);
