@@ -3137,7 +3137,7 @@ static void optimization( MeshData *m_d ){
 				BM_ITER_ELEM (face, &iter_f, vert, BM_FACES_OF_VERT) {
 					//TODO mark inconsistent faces in an other way
 					// and only check each face once
-					if(face->mat_nr == 4){
+					if(face->mat_nr == 5){
 						//Already added this face to inco_faces
 						continue;
 					}
@@ -3167,7 +3167,7 @@ static void optimization( MeshData *m_d ){
 						IncoFace inface;
 						inface.face = face;
 						inface.back_f = b_f;
-						face->mat_nr = 4;
+						face->mat_nr = 5;
 						BLI_buffer_append(&inco_faces, IncoFace, inface);
 					}
 
@@ -3265,9 +3265,6 @@ static void optimization( MeshData *m_d ){
 
 						printf("Opti filped an edge!\n");
 
-						//TODO remove this or only when debug
-						inface->face->mat_nr = 0;
-
 						BM_edge_rotate(m_d->bm, edge, true, 0);
 						inface->face = NULL;
 						//Done with this face
@@ -3339,7 +3336,6 @@ static void optimization( MeshData *m_d ){
 						if(inface->back_f == calc_if_B_nor(m_d->cam_loc, P, no)){
 							printf("Opti dissolve\n");
 							//TODO remove this or only when debug
-							inface->face->mat_nr = 0;
 
 							if(!BM_disk_dissolve(m_d->bm, vert)){
 								printf("Failed to opti dissolve\n");
@@ -3426,7 +3422,6 @@ static void optimization( MeshData *m_d ){
 
 						if( done ){
 							//Good vert smooth
-							inface->face->mat_nr = 0;
 							inface->face = NULL;
 							break;
 						}
@@ -3539,7 +3534,6 @@ static void optimization( MeshData *m_d ){
 						}
 
 						if( done ){
-							inface->face->mat_nr = 0;
 							inface->face = NULL;
 							printf("Vertex wiggle\n");
 							break;
@@ -3668,7 +3662,6 @@ static void optimization( MeshData *m_d ){
 							}
 
 							if( done ) {
-								inface->face->mat_nr = 0;
 								inface->face = NULL;
 								split_edge_and_move_vert(m_d->bm, edge, P, du, dv);
 								printf("Opti edge wiggle\n");
@@ -3758,7 +3751,6 @@ static void optimization( MeshData *m_d ){
 					}
 
 					if( done ){
-						inface->face->mat_nr = 0;
 						inface->face = NULL;
 						printf("Opti normal wiggle\n");
 						break;
@@ -3769,6 +3761,25 @@ static void optimization( MeshData *m_d ){
 			}
 		}
 	}
+
+	//Debug color
+	{
+		int face_i;
+
+		for(face_i = 0; face_i < inco_faces.count; face_i++){
+			IncoFace *inface = &BLI_buffer_at(&inco_faces, IncoFace, face_i);
+
+			BMEdge *edge;
+			BMIter iter_e;
+
+			if( inface->face == NULL ){
+				//Already fixed this edge
+				continue;
+			}
+			inface->face->mat_nr = 4;
+		}
+	}
+
 	//Cleanup
 	BLI_buffer_free(&inco_faces);
 }
