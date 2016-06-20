@@ -2800,7 +2800,8 @@ static void radial_insertion( MeshData *m_d ){
 
 				}
 
-				{
+				//TODO check if it's worth to have two different search functions (one with diff faces and one with no diff faces)
+				/*{
 					//get center uv coords
 					float cent_uv[2] = {(u_arr[0] + u_arr[1] + u_arr[2]) / 3.0f, (v_arr[0] + v_arr[1] + v_arr[2]) / 3.0f};
 					//get edge uv midpoints
@@ -2901,7 +2902,7 @@ static void radial_insertion( MeshData *m_d ){
 							}
 						}
 					}
-				}
+				}*/
 			}
 		}
 	}
