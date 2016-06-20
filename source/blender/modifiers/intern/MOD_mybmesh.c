@@ -2610,7 +2610,7 @@ static void radial_insertion( MeshData *m_d ){
 		BMFace **face_arr = BLI_array_alloca(face_arr, face_count);
 
 		/*
-		if( BM_elem_index_get(vert) != 1020 ){
+		if( BM_elem_index_get(vert) != 259 ){
 			continue;
 		}
 		*/
@@ -3923,13 +3923,13 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		return result;
 	}
 
-	//Keep a copy of the original mesh
-	bm_orig = DM_to_bmesh(dm, true);
 
-	osd_eval = create_osd_eval(dm, bm_orig);
+	osd_eval = create_osd_eval(dm, bm);
 
 	// (6.1) Initialization
 	verts_to_limit(bm, osd_eval);
+	//Keep a copy of the quad mesh
+	bm_orig = BM_mesh_copy(bm);
 
 	if (mmd->flag & MOD_MYBMESH_TRIANG) {
 		//TODO check if shortest diagonal is better
