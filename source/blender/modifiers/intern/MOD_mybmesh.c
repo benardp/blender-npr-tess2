@@ -80,6 +80,14 @@ typedef struct {
 } Cusp;
 
 typedef struct {
+	BMVert *vert;
+	//Can we extend this radial vert?
+	bool extendable;
+	float c_pos[3];
+	float radi_plane_no[3];
+} Radi_vert;
+
+typedef struct {
 	BMFace *face;
 	//Should be front or back facing?
 	bool back_f;
@@ -95,6 +103,7 @@ typedef struct {
 	BLI_Buffer *shifted_verts;
 	BLI_Buffer *cusp_edges;
 	BLI_Buffer *C_verts;
+	BLI_Buffer *radi_vert_buffer;
 	//Radial edge vert start idx
 	int radi_start_idx;
 
@@ -2286,7 +2295,7 @@ static void get_uv_point(BMFace *face, float uv[2], const float point_v2[2], con
 	resolve_quad_uv_v2(uv, point_v2, st[0], st[1], st[2], st[3]);
 }
 
-static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], const float dv[3], MeshData *m_d){
+static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], const float dv[3], Radi_vert *r_vert, MeshData *m_d){
 	BMVert *vert, *temp_v;
 	BMOperator poke_op;
 	BMOIter oiter;
@@ -2348,6 +2357,8 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 
 	//Adjust vert normal to the limit normal
 	copy_v3_v3(vert->no, new_norm);
+
+    r_vert->vert = vert;
 
 	if( rot_edge ){
 		BM_edge_rotate(m_d->bm, edge, true, 0);
@@ -2578,7 +2589,14 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 				v_buf.orig_face = orig_face;
 				v_buf.u = uv_P[0];
 				v_buf.v = uv_P[1];
-				if( poke_and_move(poke_face, P, du, dv, m_d) ){
+				Radi_vert r_vert;
+				if( poke_and_move(poke_face, P, du, dv, &r_vert, m_d) ){
+
+					r_vert.extendable = true;
+					copy_v3_v3(r_vert.radi_plane_no, rad_plane_no);
+					copy_v3_v3(r_vert.c_pos, C_vert_pos);
+
+					BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
 					BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
 				}
 			}
@@ -2719,13 +2737,18 @@ static void radial_insertion( MeshData *m_d ){
 						{
 							float P[3], du[3], dv[3];
 							Vert_buf v_buf;
+							Radi_vert r_vert;
 							v_buf.orig_edge = NULL;
 							v_buf.orig_face = orig_face;
 							v_buf.u = uv[0];
 							v_buf.v = uv[1];
 
 							openSubdiv_evaluateLimit(m_d->eval, face_index, uv[0], uv[1], P, du, dv);
-							if( poke_and_move(f, P, du, dv, m_d) ){
+							if( poke_and_move(f, P, du, dv, &r_vert, m_d) ){
+
+								r_vert.extendable = false;
+
+								BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
 								BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
 							}
 							printf("Found radi point!\n");
@@ -2908,15 +2931,15 @@ static void radial_insertion( MeshData *m_d ){
 	}
 }
 
-static bool radial_C_vert(BMVert *v, int * const radi_start_idx, BLI_Buffer *C_verts){
+static bool radial_C_vert(BMVert *v, MeshData *m_d){
 
 
-	if( !(BM_elem_index_get(v) < *radi_start_idx) ){
+	if( !(BM_elem_index_get(v) < m_d->radi_start_idx) ){
 		//This is a radial vert
 		return true;
 	}
 
-	if( is_C_vert( v, C_verts) ){
+	if( is_C_vert( v, m_d->C_verts) ){
 		return true;
 	}
 
@@ -2956,7 +2979,7 @@ static void radial_flip( MeshData *m_d ){
 				edge_vert = e->v2;
 			}
 
-			if( radial_C_vert( edge_vert, &(m_d->radi_start_idx), m_d->C_verts ) ){
+			if( radial_C_vert( edge_vert, m_d ) ){
 				//This is a radial or CC edge, do not try to flip it.
 				continue;
 			}
@@ -3114,20 +3137,203 @@ static void radial_flip( MeshData *m_d ){
 	}
 }
 
-static void optimization( MeshData *m_d ){
+static int radial_extention( MeshData *m_d ){
+	int exten = 0;
 
-	BLI_buffer_declare_static(IncoFace, inco_faces, BLI_BUFFER_NOP, 32);
-	//Find and save all inconsistent faces before we begin trying to optimize the mesh
-	{
-		int i;
-		BMVert *vert;
-		BMIter iter_v;
-		//TODO is there anyway to begin at m_d->radi_start_idx?
-		BM_ITER_MESH_INDEX (vert, &iter_v, m_d->bm, BM_VERTS_OF_MESH, i) {
+	for(int vert_i = 0; vert_i < m_d->radi_vert_buffer->count; vert_i++){
+		Radi_vert r_vert = BLI_buffer_at(m_d->radi_vert_buffer, Radi_vert, vert_i);
+		BMFace *face;
+		BMIter iter;
 
-			if( i < m_d->radi_start_idx ){
+		if( !(r_vert.extendable) ){
+			continue;
+		}
+
+		bool b_f = calc_if_B_nor(m_d->cam_loc, r_vert.vert->co, r_vert.vert->no);
+		int prev_inco_faces = 0;
+		BMEdge *flip_edge = NULL;
+		bool flipped_edge = false;
+		float cent_f[3];
+		BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
+			BM_face_calc_center_mean(face, cent_f);
+
+			if( b_f != calc_if_B_nor(m_d->cam_loc, cent_f, face->no) ){
+				prev_inco_faces++;
+
+				BMIter iter_e;
+				BMEdge *edge;
+
+				BM_ITER_ELEM (edge, &iter_e, face, BM_EDGES_OF_FACE) {
+					//Don't flip any edge directly connected to this radi vert
+                    if( edge->v1 == r_vert.vert || edge->v2 == r_vert.vert ){
+						continue;
+					}
+					float plane[4];
+					plane_from_point_normal_v3(plane, r_vert.c_pos, r_vert.radi_plane_no);
+
+                    //Make sure that the radi plane will cut the edge.
+					//IE the edge points lies on opposite sides of the plane
+					if( (dist_signed_to_plane_v3( edge->v1->co, plane ) < 0) ==
+						(dist_signed_to_plane_v3( edge->v2->co, plane ) < 0) ){
+						continue;
+					}
+
+					//Check so we don't try to flip any contour/radial edges
+					if( !radial_C_vert(edge->v1, m_d) || !radial_C_vert(edge->v2, m_d)){
+						float lambda;
+						float temp[3];
+						sub_v3_v3v3(temp, edge->v2->co, edge->v1->co);
+
+						//Does the radial plane intersect the opposite edge?
+						if( isect_ray_plane_v3(edge->v1->co, temp, plane, &lambda, true) ){
+							flip_edge = edge;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if( prev_inco_faces == 0 ){
+			continue;
+		}
+
+		if( flip_edge != NULL && BM_edge_rotate_check(flip_edge) ){
+			BMLoop *loop1, *loop2;
+			BM_edge_calc_rotate(flip_edge, true, &loop1, &loop2);
+			if( BM_edge_rotate_check_degenerate(flip_edge, loop1, loop2) ){
+				BM_edge_rotate(m_d->bm, flip_edge, true, 0);
+				flipped_edge = true;
+			}
+		}
+
+		//Begin extenting the radi edge
+		{
+			float mat[3][3];
+			float pos_v2[2];
+			float old_pos[3], i_pos[3], best_pos[3];
+
+			int orig_verts = BM_mesh_elem_count(m_d->bm_orig, BM_VERT);
+			int idx = BM_elem_index_get(r_vert.vert);
+			BMFace *cur_face;
+			Vert_buf v_buf = BLI_buffer_at(m_d->new_vert_buffer, Vert_buf, idx - orig_verts);
+
+			bool found_better_pos = false;
+
+            cur_face = v_buf.orig_face;
+
+			copy_v3_v3( old_pos, r_vert.vert->co );
+
+			axis_dominant_v3_to_m3(mat, r_vert.vert->no);
+
+			for( int i=1; i < 11; i++ ){
+				float t = 1.0f + (float)i/10.0f;
+				float P[3], du[3], dv[3];
+				float uv_P[2];
+
+				interp_v3_v3v3(i_pos, r_vert.c_pos, old_pos, t);
+
+				mul_v2_m3v3(pos_v2, mat, i_pos);
+
+				if( !point_inside_v2( mat, pos_v2, cur_face ) ){
+					BMFace *f;
+					BMVert *v;
+					BMIter iter_v, iter_f;
+					bool found_face = false;
+
+					BM_ITER_ELEM (v, &iter_v, cur_face, BM_VERTS_OF_FACE) {
+						BM_ITER_ELEM (f, &iter_f, v, BM_FACES_OF_VERT) {
+							if( point_inside_v2( mat, pos_v2, f ) ){
+								cur_face = f;
+								found_face = true;
+								break;
+							}
+						}
+						if( found_face ){
+							break;
+						}
+					}
+					if( !found_face ){
+						continue;
+					}
+				}
+
+				get_uv_point( cur_face, uv_P, pos_v2, mat );
+				openSubdiv_evaluateLimit(m_d->eval, BM_elem_index_get(cur_face), uv_P[0], uv_P[1], P, du, dv);
+
+				copy_v3_v3(r_vert.vert->co, P);
+                //Did the nr of consistent triangles increase?
+				{
+                    int new_inco_faces = 0;
+					BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
+						BM_face_calc_center_mean(face, cent_f);
+                        BM_face_normal_update(face);
+
+						if( b_f != calc_if_B_nor(m_d->cam_loc, cent_f, face->no) ){
+							new_inco_faces++;
+						}
+					}
+
+					if( new_inco_faces == 0 ){
+						found_better_pos = true;
+						copy_v3_v3(best_pos, P);
+						break;
+					}
+
+					if( new_inco_faces < prev_inco_faces ){
+						found_better_pos = true;
+						copy_v3_v3(best_pos, P);
+                        prev_inco_faces = new_inco_faces;
+					}
+				}
+			}
+
+			if(found_better_pos){
+				copy_v3_v3(r_vert.vert->co, best_pos);
+                //Make sure we hace up to date face normals
+				BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
+					BM_face_normal_update(face);
+				}
+				exten++;
 				continue;
 			}
+
+			//Move back to original position and flip back edge
+			copy_v3_v3( r_vert.vert->co, old_pos );
+
+			//Make sure we hace up to date face normals
+			BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
+				BM_face_normal_update(face);
+			}
+
+			if( flipped_edge ){
+				BM_edge_rotate(m_d->bm, flip_edge, false, 0);
+			}
+
+		}
+	}
+	return exten;
+}
+
+static void optimization( MeshData *m_d ){
+
+	// 1. Radial edge extension
+	{
+		//How many radial edges did we extend this iteration?
+		int exten = 0;
+		do {
+			exten = radial_extention( m_d );
+			//printf("exten: %d\n", exten);
+		} while (exten > 0);
+	}
+
+	BLI_buffer_declare_static(IncoFace, inco_faces, BLI_BUFFER_NOP, 32);
+	//Find and save all inconsistent faces before we begin with the other optimization steps
+	{
+		BMVert *vert;
+		for(int vert_i = 0; vert_i < m_d->radi_vert_buffer->count; vert_i++){
+			Radi_vert r_vert = BLI_buffer_at(m_d->radi_vert_buffer, Radi_vert, vert_i);
+			vert = r_vert.vert;
 
 			{
 				BMFace *face;
@@ -3176,10 +3382,6 @@ static void optimization( MeshData *m_d ){
 			}
 
 		}
-	}
-	// 1. Radial edge extension
-	{
-		// TODO
 	}
 
 	// 2. Edge flipping
@@ -3962,6 +4164,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		BLI_buffer_declare_static(Vert_buf, shifted_verts, BLI_BUFFER_NOP, 32);
 		BLI_buffer_declare_static(Cusp, cusp_edges, BLI_BUFFER_NOP, 32);
 		BLI_buffer_declare_static(BMVert*, C_verts, BLI_BUFFER_NOP, 32);
+		BLI_buffer_declare_static(Radi_vert, radi_vert_buffer, BLI_BUFFER_NOP, 32);
 
 		MeshData mesh_data;
 
@@ -3974,6 +4177,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		mesh_data.shifted_verts = &shifted_verts;
 		mesh_data.cusp_edges = &cusp_edges;
 		mesh_data.C_verts = &C_verts;
+		mesh_data.radi_vert_buffer = &radi_vert_buffer;
 		mesh_data.is_cusp = false;
 		mesh_data.eval = osd_eval;
 
@@ -4023,6 +4227,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		BLI_buffer_free(&shifted_verts);
 		BLI_buffer_free(&cusp_edges);
 		BLI_buffer_free(&C_verts);
+		BLI_buffer_free(&radi_vert_buffer);
 	}
 	result = CDDM_from_bmesh(bm, true);
 
