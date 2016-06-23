@@ -2497,7 +2497,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 				int i, face_index;
 				BMFace *orig_face;
 				Vert_buf v_buf;
-				/*
+                /*
 				print_v3("cent", cent);
 				print_v3("edge1_mid", edge1_mid);
 				print_v3("edge2_mid", edge2_mid);
@@ -2505,7 +2505,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 				print_v2("UV_cent", uvs[0]);
 				print_v2("UV_edge1", uvs[1]);
 				print_v2("UV_edge2", uvs[2]);
-				*/
+                */
 				if( face_ids[0] == face_ids[search_id] ){
 					//We can work in pure uv space
 					//printf("UV space\n");
@@ -2536,18 +2536,18 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 					}
 				} else {
 					//Work in coord space
-					float cur_p[3], p[3];
+					float cur_p[3], end[3];
 					int j;
 
 					//printf("Coord space\n");
 					if( search_id == 1 ){
-						copy_v3_v3(p, edge1_mid);
+						copy_v3_v3(end, edge1_mid);
 					} else {
-						copy_v3_v3(p, edge2_mid);
+						copy_v3_v3(end, edge2_mid);
 					}
 
 					for( i = 0; i < 10; i++ ){
-						interp_v3_v3v3(cur_p, cent, p, step);
+						interp_v3_v3v3(cur_p, cent, end, step);
 
 						for ( j = 0; j < edge_count; j++) {
 							if( point_inside(mat, cur_p, faces[j]) ){
@@ -2626,13 +2626,11 @@ static void radial_insertion( MeshData *m_d ){
 		int face_i;
 		int face_count = BM_vert_face_count(vert);
 		BMFace **face_arr = BLI_array_alloca(face_arr, face_count);
-
-		/*
-		if( BM_elem_index_get(vert) != 259 ){
+        /*
+		if( BM_elem_index_get(vert) != 313 ){
 			continue;
 		}
-		*/
-
+        */
 		BM_ITER_ELEM_INDEX (f, &iter_f, vert, BM_FACES_OF_VERT, face_i) {
 			face_arr[face_i] = f;
 		}
@@ -3315,6 +3313,32 @@ static int radial_extention( MeshData *m_d ){
 	return exten;
 }
 
+static void null_opti_edge(BMEdge *e, BLI_Buffer *inco_faces){
+	BMFace *f;
+	BMIter iter;
+	BM_ITER_ELEM (f, &iter, e, BM_FACES_OF_EDGE) {
+		for(int i = 0; i < inco_faces->count; i++){
+			IncoFace *inface = &BLI_buffer_at(inco_faces, IncoFace, i);
+			if( inface->face != NULL && inface->face == f ){
+				inface->face = NULL;
+			}
+		}
+	}
+}
+
+static void null_opti_vert(BMVert *v, BLI_Buffer *inco_faces){
+	BMFace *f;
+	BMIter iter;
+	BM_ITER_ELEM (f, &iter, v, BM_FACES_OF_VERT) {
+		for(int i = 0; i < inco_faces->count; i++){
+			IncoFace *inface = &BLI_buffer_at(inco_faces, IncoFace, i);
+			if( inface->face != NULL && inface->face == f ){
+				inface->face = NULL;
+			}
+		}
+	}
+}
+
 static void optimization( MeshData *m_d ){
 
 	// 1. Radial edge extension
@@ -3468,8 +3492,9 @@ static void optimization( MeshData *m_d ){
 
 						printf("Opti filped an edge!\n");
 
+						null_opti_edge(edge, &inco_faces);
+
 						BM_edge_rotate(m_d->bm, edge, true, 0);
-						inface->face = NULL;
 						//Done with this face
 						break;
 					}
@@ -3625,7 +3650,7 @@ static void optimization( MeshData *m_d ){
 
 						if( done ){
 							//Good vert smooth
-							inface->face = NULL;
+							null_opti_vert(vert, &inco_faces);
 							break;
 						}
 					}
@@ -3737,7 +3762,7 @@ static void optimization( MeshData *m_d ){
 						}
 
 						if( done ){
-							inface->face = NULL;
+							null_opti_vert(vert, &inco_faces);
 							printf("Vertex wiggle\n");
 							break;
 						} else {
@@ -3865,7 +3890,7 @@ static void optimization( MeshData *m_d ){
 							}
 
 							if( done ) {
-								inface->face = NULL;
+								null_opti_edge(edge, &inco_faces);
 								split_edge_and_move_vert(m_d->bm, edge, P, du, dv);
 								printf("Opti edge wiggle\n");
 								break;
@@ -3954,7 +3979,7 @@ static void optimization( MeshData *m_d ){
 					}
 
 					if( done ){
-						inface->face = NULL;
+						null_opti_vert(vert, &inco_faces);
 						printf("Opti normal wiggle\n");
 						break;
 					} else {
