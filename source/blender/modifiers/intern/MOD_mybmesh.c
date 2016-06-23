@@ -3776,7 +3776,6 @@ static void optimization( MeshData *m_d ){
 			}
 		}
 	}
-
     BM_mesh_elem_index_ensure(m_d->bm, BM_VERT | BM_FACE); // For debugging
 
 	// 4. Edge Splitting
@@ -3796,10 +3795,19 @@ static void optimization( MeshData *m_d ){
 				continue;
 			}
 
+			printf("Edge wigg face idx: %d\n", BM_elem_index_get(inface->face));
+
 			BM_ITER_ELEM (edge, &iter_v, inface->face, BM_EDGES_OF_FACE) {
 				BMVert *orig_v = NULL;
 				BMFace *f;
 				BMIter iter_f;
+
+				if( BM_edge_face_count(edge) != 2 ){
+					//We managed to create a non manifold mesh in the previous steps
+					//(Most probably in the radial insertion step)
+					//TODO maybe prevent this from happening in the first place?
+					continue;
+				}
 
 				// Storage for vertex pos
 				// This is used later to see if the edge split will be ok or not
@@ -3817,8 +3825,6 @@ static void optimization( MeshData *m_d ){
 				if( orig_v == NULL ){
 					continue;
 				}
-
-                printf("Edge wigg face idx: %d\n", BM_elem_index_get(inface->face));
 
 				BM_ITER_ELEM (f, &iter_f, edge, BM_FACES_OF_EDGE) {
 					int i;
