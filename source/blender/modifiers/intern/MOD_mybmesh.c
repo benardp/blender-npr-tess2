@@ -761,11 +761,11 @@ static bool check_and_shift(BMVert *vert, const float new_loc[3], const float ne
 		BLI_buffer_declare_static(BMVert*, c_verts, BLI_BUFFER_NOP, 32);
 		BMFace* f;
 		BMIter iter_f;
+		int num_cross = 0; //number of zero crossing edges
 
 		BM_ITER_ELEM (f, &iter_f, vert, BM_FACES_OF_VERT) {
 			BMEdge* e;
 			BMIter iter_e;
-			int num_cross = 0; //number of zero crossing edges
 			BM_ITER_ELEM (e, &iter_e, f, BM_EDGES_OF_FACE) {
 				if( e->v1 != vert && e->v2 != vert ){
 					int vert_i;
