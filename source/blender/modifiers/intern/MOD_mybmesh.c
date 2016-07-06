@@ -355,8 +355,8 @@ static void split_BB_FF_edges(MeshData *m_d) {
 			bool found_face;
 
 			//This should be safe because the vert count is still the same as the original mesh.
-			v1 = BM_vert_at_index_find( m_d->bm_orig, BM_elem_index_get( e->v1 ) );
-			v2 = BM_vert_at_index_find( m_d->bm_orig, BM_elem_index_get( e->v2 ) );
+			v1 = BLI_ghash_lookup(m_d->vert_hash, e->v1);
+			v2 = BLI_ghash_lookup(m_d->vert_hash, e->v2);
 
 			vert_arr[0] = v1;
 			vert_arr[1] = v2;
@@ -1208,7 +1208,7 @@ static void search_edge( const int i, BMEdge *e, MeshData *m_d){
 			v1_has_face = true;
 		}
 	} else {
-		v1 = BM_vert_at_index_find( m_d->bm_orig, v1_idx );
+		v1 = BLI_ghash_lookup(m_d->vert_hash, e->v1);
 	}
 	if( (v2_idx + 1) > orig_verts){
 		v_buf2 = BLI_buffer_at(m_d->new_vert_buffer, Vert_buf, v2_idx - orig_verts);
@@ -1218,7 +1218,7 @@ static void search_edge( const int i, BMEdge *e, MeshData *m_d){
 			v2_has_face = true;
 		}
 	} else {
-		v2 = BM_vert_at_index_find( m_d->bm_orig, v2_idx );
+		v2 = BLI_ghash_lookup(m_d->vert_hash, e->v2);
 	}
 
 	if( v1 && v2 ){
@@ -1715,7 +1715,7 @@ static BMFace *get_orig_face(int orig_verts, const BMVert *vert_arr_in[3], float
 				edge_face_arr[i] = v_buf.orig_face;
 			}
 		} else {
-			vert_arr[i] = BM_vert_at_index_find( m_d->bm_orig, v_idx );
+			vert_arr[i] = BLI_ghash_lookup(m_d->vert_hash, vert_arr[i]);
 		}
 	}
 
@@ -3786,7 +3786,6 @@ static void optimization( MeshData *m_d ){
 
 		for(face_i = 0; face_i < inco_faces.count; face_i++){
 			IncoFace *inface = &BLI_buffer_at(&inco_faces, IncoFace, face_i);
-			int orig_verts = BM_mesh_elem_count(m_d->bm_orig, BM_VERT);
 
 			BMEdge *edge;
 			BMIter iter_v;
@@ -3815,15 +3814,14 @@ static void optimization( MeshData *m_d ){
 				float store[4][2][3];
 				int j = 0;
 
-				if( BM_elem_index_get(edge->v1) < orig_verts ){
-					int idx = BM_elem_index_get(edge->v1);
-					orig_v = BM_vert_at_index_find(m_d->bm_orig, idx);
-				} else if ( BM_elem_index_get(edge->v2) < orig_verts ){
-					int idx = BM_elem_index_get(edge->v2);
-					orig_v = BM_vert_at_index_find(m_d->bm_orig, idx);
+				orig_v = BLI_ghash_lookup(m_d->vert_hash, edge->v1);
+				if( orig_v == NULL  ){
+					//See if the other vert is in the original mesh
+					orig_v = BLI_ghash_lookup(m_d->vert_hash, edge->v2);
 				}
 
 				if( orig_v == NULL ){
+					//We didn't find and suitable vert...
 					continue;
 				}
 
