@@ -41,6 +41,7 @@
 #include "BLI_utildefines.h"
 #include "BLI_buffer.h"
 #include "BLI_alloca.h"
+#include "BLI_ghash.h"
 
 #include "BKE_cdderivedmesh.h"
 #include "BKE_library_query.h"
@@ -98,6 +99,8 @@ typedef struct {
 	BMesh *bm_orig;
 
 	float cam_loc[3];
+
+    GHash *vert_hash;
 
 	BLI_Buffer *new_vert_buffer;
 	BLI_Buffer *shifted_verts;
@@ -3666,7 +3669,6 @@ static void optimization( MeshData *m_d ){
 
 		for(face_i = 0; face_i < inco_faces.count; face_i++){
 			IncoFace *inface = &BLI_buffer_at(&inco_faces, IncoFace, face_i);
-			int orig_verts = BM_mesh_elem_count(m_d->bm_orig, BM_VERT);
 
 			BMVert *vert;
 			BMIter iter_v;
@@ -3677,10 +3679,9 @@ static void optimization( MeshData *m_d ){
 			}
 
 			BM_ITER_ELEM (vert, &iter_v, inface->face, BM_VERTS_OF_FACE) {
-				int idx = BM_elem_index_get(vert);
-				if( idx < orig_verts ){
+				BMVert *orig_v = BLI_ghash_lookup(m_d->vert_hash, vert);
+				if( orig_v != NULL ){
 					// This vert exists in the original mesh
-					BMVert *orig_v = BM_vert_at_index_find(m_d->bm_orig, idx);
 					int edge_count = BM_vert_edge_count(vert);
 
 					// We are going to search for a new position using a spiral
@@ -4128,6 +4129,26 @@ static void debug_colorize_radi( MeshData *m_d ){
 	}
 }
 
+static void create_vert_mapping(MeshData *m_d){
+    BMVert *new, *old; //Key, value
+	BMIter new_iter, old_iter;
+
+	unsigned int tot_verts = BM_mesh_elem_count(m_d->bm_orig, BM_VERT);
+	m_d->vert_hash = BLI_ghash_int_new_ex("vert map", tot_verts);
+
+	BM_CHECK_TYPE_ELEM_ASSIGN(new) = BM_iter_new(&new_iter, m_d->bm, BM_VERTS_OF_MESH, NULL);
+	BM_CHECK_TYPE_ELEM_ASSIGN(old) = BM_iter_new(&old_iter, m_d->bm_orig, BM_VERTS_OF_MESH, NULL);
+
+	//When this function is called, bm is just a copy of bm_orig. So we can now map the original verts together.
+	for(int i = 0; i < tot_verts; i++){
+
+		BLI_ghash_insert(m_d->vert_hash, new, old);
+
+		BM_CHECK_TYPE_ELEM_ASSIGN(new) = BM_iter_step(&new_iter);
+		BM_CHECK_TYPE_ELEM_ASSIGN(old) = BM_iter_step(&old_iter);
+	}
+}
+
 /* bmesh only function */
 static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float cam_loc[3])
 {
@@ -4212,6 +4233,8 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		mesh_data.is_cusp = false;
 		mesh_data.eval = osd_eval;
 
+        create_vert_mapping(&mesh_data);
+
 		if (mmd->flag & MOD_MYBMESH_FF_SPLIT) {
 			split_BB_FF_edges(&mesh_data);
 		}
@@ -4254,6 +4277,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 
 		debug_colorize(bm, cam_loc);
 		debug_colorize_radi(&mesh_data);
+		BLI_ghash_free(mesh_data.vert_hash, NULL, NULL);
 		BLI_buffer_free(&new_vert_buffer);
 		BLI_buffer_free(&shifted_verts);
 		BLI_buffer_free(&cusp_edges);
