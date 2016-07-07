@@ -1254,7 +1254,7 @@ static void search_edge( const int i, BMEdge *e, MeshData *m_d){
 			vert_arr[1] = v_buf2.orig_edge->v2;
 			vert_arr[2] = v1;
 			//TODO check if get face fails
-			if( v_buf2.orig_edge->v1 == v2 || v_buf2.orig_edge->v2 == v2 ){
+			if( v_buf2.orig_edge->v1 == v1 || v_buf2.orig_edge->v2 == v1 ){
 				BM_face_exists_overlap(vert_arr, 2, &f);
 			} else {
 				BM_face_exists_overlap(vert_arr, 3, &f);
