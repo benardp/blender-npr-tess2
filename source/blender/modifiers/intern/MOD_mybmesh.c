@@ -36,12 +36,19 @@
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
 
+#include "MEM_guardedalloc.h"
+
 #include "BLI_math.h"
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
 #include "BLI_buffer.h"
 #include "BLI_alloca.h"
 #include "BLI_ghash.h"
+#include "BLI_linklist.h"
+#include "BLI_memarena.h"
+
+/* only for defines */
+#include "BLI_polyfill2d.h"
 
 #include "BKE_cdderivedmesh.h"
 #include "BKE_library_query.h"
@@ -204,65 +211,95 @@ static float get_facing_dir_nor(const float cam_loc[3], const float P[3], const 
 	return dot_v3v3(nor, view_vec);
 }
 
-static BMVert *split_edge_and_move_vert(BMesh *bm, BMEdge *edge, const float new_pos[3],
-									const float du[3], const float dv[3]){
+
+static BMVert* split_edge_and_move_nor(BMesh *bm, BMEdge *edge, const float new_pos[3], const float new_no[3]){
 	//Split edge one time and move the created vert to new_pos
 
 	BMVert *vert, *temp_v;
-	BMOperator div_op;
-	BMOIter oiter;
+    BMFace *face_arr[2];
 
+	BMIter iter;
+	BMFace *face;
+	int i;
+
+	int new_idx = BM_mesh_elem_count(bm, BM_VERT);
+	//Save the connected faces for triangulation later
+	BM_ITER_ELEM_INDEX (face, &iter, edge, BM_FACES_OF_EDGE, i){
+		face_arr[i] = face;
+	}
 	printf("Split edge!\n");
 
-	BM_mesh_elem_hflag_disable_all(bm, BM_EDGE, BM_ELEM_TAG, false);
-	BM_elem_flag_enable(edge, BM_ELEM_TAG);
-	BMO_op_initf(bm, &div_op, BMO_FLAG_DEFAULTS,
-			"subdivide_edges edges=%he cuts=%i quad_corner_type=%i use_single_edge=%b",
-			BM_ELEM_TAG, 1, SUBD_CORNER_STRAIGHT_CUT, true, "geom.out");
+	//TODO perhaps use BM_edge_split instead?
+    vert = bmesh_semv(bm, edge->v1, edge, NULL);
+	BM_elem_index_set(vert, new_idx);
 
-	BMO_op_exec(bm, &div_op);
+	/*{
+		MemArena *pf_arena;
+		pf_arena = BLI_memarena_new(BLI_POLYFILL_ARENA_SIZE, __func__);
+		LinkNode *faces_double = NULL;
+		BM_face_triangulate(
+				bm, face_arr[0],
+				NULL, NULL,
+				NULL, NULL,
+				&faces_double,
+				MOD_TRIANGULATE_QUAD_FIXED,
+				0,false,
+				pf_arena,
+				NULL, NULL);
 
-	//Get the newly created vertex
-	BMO_ITER (temp_v, &oiter, div_op.slots_out, "geom.out", BM_VERT) {
-		vert = temp_v;
+		BM_face_triangulate(
+				bm, face_arr[1],
+				NULL, NULL,
+				NULL, NULL,
+				&faces_double,
+				MOD_TRIANGULATE_QUAD_FIXED,
+				0,false,
+				pf_arena,
+				NULL, NULL);
+
+		while (faces_double) {
+			LinkNode *next = faces_double->next;
+			BM_face_kill(bm, faces_double->link);
+			MEM_freeN(faces_double);
+			faces_double = next;
+		}
+		BLI_memarena_free(pf_arena);
+	}*/
+
+	//Triangulate the faces connected to the new vert
+	{
+		BMLoop *start;
+		BMLoop *end;
+
+		BMFace *new_f;
+
+		for( int j = 0; j < i; j++ ){
+			start = BM_face_vert_share_loop( face_arr[j], vert );
+			end = (start->next)->next;
+
+			//TODO maybe use bmesh_sfme instead?
+			new_f = BM_face_split(bm, face_arr[j], start, end, NULL, NULL, false);
+
+			BM_face_normal_update(face_arr[j]);
+			BM_face_normal_update(new_f);
+		}
 	}
 
 	copy_v3_v3(vert->co, new_pos);
 	//Adjust vert normal to the limit normal
-	cross_v3_v3v3(vert->no, du, dv);
+	copy_v3_v3(vert->no, new_no);
 	normalize_v3(vert->no);
 
-	BMO_op_finish(bm, &div_op);
 	return vert;
 }
 
+static BMVert *split_edge_and_move_vert(BMesh *bm, BMEdge *edge, const float new_pos[3],
+									const float du[3], const float dv[3]){
 
-static BMVert* split_edge_and_move_cusp(BMesh *bm, BMEdge *edge, const float new_pos[3], const float new_no[3]){
-	//Split edge one time and move the created vert to new_pos
+	float new_no[3];
 
-	BMVert *vert, *temp_v;
-	BMOperator div_op;
-	BMOIter oiter;
-	printf("Cusp split!\n");
-
-	BM_mesh_elem_hflag_disable_all(bm, BM_EDGE, BM_ELEM_TAG, false);
-	BM_elem_flag_enable(edge, BM_ELEM_TAG);
-	BMO_op_initf(bm, &div_op, BMO_FLAG_DEFAULTS,
-			"subdivide_edges edges=%he cuts=%i quad_corner_type=%i use_single_edge=%b",
-			BM_ELEM_TAG, 1, SUBD_CORNER_STRAIGHT_CUT, true, "geom.out");
-
-	BMO_op_exec(bm, &div_op);
-
-	//Get the newly created vertex
-	BMO_ITER (temp_v, &oiter, div_op.slots_out, "geom.out", BM_VERT) {
-		vert = temp_v;
-	}
-
-	copy_v3_v3(vert->co, new_pos);
-	copy_v3_v3(vert->no, new_no);
-
-	BMO_op_finish(bm, &div_op);
-	return vert;
+	cross_v3_v3v3(new_no, du, dv);
+	return split_edge_and_move_nor(bm, edge, new_pos, new_no);
 }
 
 static bool get_uv_coord(BMVert *vert, BMFace *f, float *u, float *v){
@@ -1200,25 +1237,26 @@ static void search_edge( const int i, BMEdge *e, MeshData *m_d){
 	BMVert *v1 = NULL, *v2 = NULL;
 	bool v1_has_face = false, v2_has_face = false, diff_faces = false;
 
-	if( (v1_idx + 1) > orig_verts){
+	v1 = BLI_ghash_lookup(m_d->vert_hash, e->v1);
+
+	if( v1 == NULL ){
 		v_buf1 = BLI_buffer_at(m_d->new_vert_buffer, Vert_buf, v1_idx - orig_verts);
 		v1_u = v_buf1.u;
 		v1_v = v_buf1.v;
 		if( v_buf1.orig_edge == NULL ){
 			v1_has_face = true;
 		}
-	} else {
-		v1 = BLI_ghash_lookup(m_d->vert_hash, e->v1);
 	}
-	if( (v2_idx + 1) > orig_verts){
+
+	v2 = BLI_ghash_lookup(m_d->vert_hash, e->v2);
+
+	if( v2 == NULL ){
 		v_buf2 = BLI_buffer_at(m_d->new_vert_buffer, Vert_buf, v2_idx - orig_verts);
 		v2_u = v_buf2.u;
 		v2_v = v_buf2.v;
 		if( v_buf2.orig_edge == NULL ){
 			v2_has_face = true;
 		}
-	} else {
-		v2 = BLI_ghash_lookup(m_d->vert_hash, e->v2);
 	}
 
 	if( v1 && v2 ){
@@ -1685,11 +1723,14 @@ static BMFace *get_orig_face(int orig_verts, const BMVert *vert_arr_in[3], float
 	//check if all verts are on the orignal mesh
 	for(i = 0; i < 3; i++){
 		int v_idx = BM_elem_index_get(vert_arr[i]);
+        BMVert *temp_v;
 
 		//Copy coords for later use
 		copy_v3_v3(co_arr[i], vert_arr[i]->co);
 
-		if( (v_idx + 1) > orig_verts){
+        temp_v = BLI_ghash_lookup(m_d->vert_hash, vert_arr[i]);
+
+		if( temp_v == NULL ){
 			Vert_buf v_buf = BLI_buffer_at(m_d->new_vert_buffer, Vert_buf, v_idx - orig_verts);
 			u_arr[i] = v_buf.u;
 			v_arr[i] = v_buf.v;
@@ -1715,7 +1756,7 @@ static BMFace *get_orig_face(int orig_verts, const BMVert *vert_arr_in[3], float
 				edge_face_arr[i] = v_buf.orig_face;
 			}
 		} else {
-			vert_arr[i] = BLI_ghash_lookup(m_d->vert_hash, vert_arr[i]);
+			vert_arr[i] = temp_v;
 		}
 	}
 
@@ -1986,7 +2027,7 @@ static void cusp_insertion(MeshData *m_d){
 			}
 		}
 
-		vert = split_edge_and_move_cusp(m_d->bm, cusp.cusp_e, cusp.cusp_co, cusp.cusp_no);
+		vert = split_edge_and_move_nor(m_d->bm, cusp.cusp_e, cusp.cusp_co, cusp.cusp_no);
 		append_vert(m_d->C_verts, vert);
 
 		new_buf.orig_face = cusp.orig_face;
@@ -2300,8 +2341,6 @@ static void get_uv_point(BMFace *face, float uv[2], const float point_v2[2], con
 
 static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], const float dv[3], Radi_vert *r_vert, MeshData *m_d){
 	BMVert *vert, *temp_v;
-	BMOperator poke_op;
-	BMOIter oiter;
 
 	BMEdge *edge = NULL;
 	bool rot_edge = false;
@@ -2314,7 +2353,6 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 	axis_dominant_v3_to_m3(mat, new_norm);
 
 	// BM_face_point_inside_test is too inaccurate to use here as some overhangs are missed with it.
-	// TODO check if point_inside_test needs to be replaced in other places also
 	if( !point_inside(mat, new_pos, f) ){
 		BMIter iter_e;
 		BMIter iter_f;
@@ -2343,21 +2381,53 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 		}
 	}
 
-	BM_mesh_elem_hflag_disable_all(m_d->bm, BM_FACE, BM_ELEM_TAG, false);
-	BM_elem_flag_enable(f, BM_ELEM_TAG);
+	{
+		//Borrowed from bmo_poke.c
+        int i = 0;
+		BMFace *f_new;
+		BMLoop *l_iter, *l_first;
+		/* only interpolate the central loop from the face once,
+		 * then copy to all others in the fan */
+		BMLoop *l_center_example;
 
-	BMO_op_initf(m_d->bm, &poke_op, BMO_FLAG_DEFAULTS,
-			"poke faces=%hf", BM_ELEM_TAG, "verts.out");
+		BMesh *bm = m_d->bm;
 
-	BMO_op_exec(m_d->bm, &poke_op);
+		int new_idx = BM_mesh_elem_count(bm, BM_VERT);
 
-	//Get the newly created vertex
-	BMO_ITER (temp_v, &oiter, poke_op.slots_out, "verts.out", BM_VERT) {
-		vert = temp_v;
+		vert = BM_vert_create(bm, new_pos, NULL, BM_CREATE_NOP);
+
+        BM_elem_index_set(vert, new_idx);
+
+		//Silence asserts in BM_loop_interp_from_face
+		//TODO perhaps work around this in some other way?
+        BM_face_normal_update(f);
+
+		l_iter = l_first = BM_FACE_FIRST_LOOP(f);
+		do {
+			BMLoop *l_new;
+
+			f_new = BM_face_create_quad_tri(bm, l_iter->v, l_iter->next->v, vert, NULL, f, BM_CREATE_NOP);
+			l_new = BM_FACE_FIRST_LOOP(f_new);
+
+            BM_face_normal_update(f_new);
+
+			if (i == 0) {
+				l_center_example = l_new->prev;
+				BM_loop_interp_from_face(bm, l_center_example, f, true, false);
+			}
+			else {
+				BM_elem_attrs_copy(bm, bm, l_center_example, l_new->prev);
+			}
+
+			/* Copy Loop Data */
+			BM_elem_attrs_copy(bm, bm, l_iter, l_new);
+			BM_elem_attrs_copy(bm, bm, l_iter->next, l_new->next);
+
+		} while ((void)i++, (l_iter = l_iter->next) != l_first);
+
+		/* Kill Face */
+		BM_face_kill(bm, f);
 	}
-
-	copy_v3_v3(vert->co, new_pos);
-
 	//Adjust vert normal to the limit normal
 	copy_v3_v3(vert->no, new_norm);
 
@@ -2367,9 +2437,6 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 		BM_edge_rotate(m_d->bm, edge, true, 0);
 		printf("rotated edge!\n");
 	}
-
-
-	BMO_op_finish(m_d->bm, &poke_op);
 
 	return true;
 }
