@@ -91,6 +91,7 @@ typedef struct {
 	BMVert *vert;
 	//Can we extend this radial vert?
 	bool extendable;
+	bool is_B;
 	float c_pos[3];
 	float radi_plane_no[3];
 } Radi_vert;
@@ -2337,6 +2338,19 @@ static void get_uv_point(BMFace *face, float uv[2], const float point_v2[2], con
 	}
 
 	resolve_quad_uv_v2(uv, point_v2, st[0], st[1], st[2], st[3]);
+
+    if( uv[0] > 1.0f ){
+		uv[0] = 1.0f;
+	} else if( uv[0] < 0.0f ){
+		uv[0] = 0.0f;
+	}
+
+    if( uv[1] > 1.0f ){
+		uv[1] = 1.0f;
+	} else if( uv[1] < 0.0f ){
+		uv[1] = 0.0f;
+	}
+
 }
 
 static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], const float dv[3], Radi_vert *r_vert, MeshData *m_d){
@@ -2442,7 +2456,7 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 }
 
 static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const float edge1_mid[3], const float edge2_mid[3],
-							const float val_1, const float val_2,
+							const float val_1, const float val_2, bool is_B,
 							const float rad_plane_no[3], const float C_vert_pos[3], BMFace *poke_face, MeshData *m_d ){
 	//Try to find a vert that is connected to both faces
 	BMVert *vert;
@@ -2665,6 +2679,7 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 					r_vert.extendable = true;
 					copy_v3_v3(r_vert.radi_plane_no, rad_plane_no);
 					copy_v3_v3(r_vert.c_pos, C_vert_pos);
+					r_vert.is_B = is_B;
 
 					BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
 					BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
@@ -2813,8 +2828,19 @@ static void radial_insertion( MeshData *m_d ){
 
 							openSubdiv_evaluateLimit(m_d->eval, face_index, uv[0], uv[1], P, du, dv);
 							if( poke_and_move(f, P, du, dv, &r_vert, m_d) ){
+								BMVert *b_vert;
+								bool is_B;
+
+								if( mod_i(CC_idx+1,3) == CC2_idx ){
+									b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
+								} else {
+									b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
+								}
+
+								is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
 
 								r_vert.extendable = false;
+								r_vert.is_B = is_B;
 
 								BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
 								BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
@@ -2879,13 +2905,25 @@ static void radial_insertion( MeshData *m_d ){
 						float cent[3];
 						float edge1_mid[3];
 						float edge2_mid[3];
-						BMFace *face_idx1,*face_idx2;
+						//We need to figure out which facing the radial edge is supposed to have so we can
+						//try to fix it later if the inserted radial vert has the wrong facing
+                        bool is_B;
+						BMVert *b_vert;
+
+						if( mod_i(CC_idx+1,3) == CC2_idx ){
+							b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
+						} else {
+							b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
+						}
+
+						is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
+
 						interp_v3_v3v3(edge1_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx-1, 3) ], 0.5f);
 						interp_v3_v3v3(edge2_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx+1, 3) ], 0.5f);
 						cent_tri_v3(cent, co_arr[0], co_arr[1], co_arr[2]);
 
 						printf("Diff faces\n");
-						mult_radi_search(faces, cent, edge1_mid, edge2_mid, val_1, val_2, rad_plane_no, co_arr[CC_idx], f, m_d);
+						mult_radi_search(faces, cent, edge1_mid, edge2_mid, val_1, val_2, is_B, rad_plane_no, co_arr[CC_idx], f, m_d);
 						continue;
 					}
 
@@ -3217,7 +3255,7 @@ static int radial_extention( MeshData *m_d ){
 			continue;
 		}
 
-		bool b_f = calc_if_B_nor(m_d->cam_loc, r_vert.vert->co, r_vert.vert->no);
+		bool b_f = r_vert.is_B;
 		int prev_inco_faces = 0;
 		BMEdge *flip_edge = NULL;
 		bool flipped_edge = false;
@@ -3273,6 +3311,8 @@ static int radial_extention( MeshData *m_d ){
 				BM_edge_rotate(m_d->bm, flip_edge, true, 0);
 				flipped_edge = true;
 			}
+		} else {
+			continue;
 		}
 
 		//Begin extenting the radi edge
@@ -3432,7 +3472,7 @@ static void optimization( MeshData *m_d ){
 			{
 				BMFace *face;
 				BMIter iter_f;
-				bool b_f = calc_if_B_nor(m_d->cam_loc, vert->co, vert->no);
+				bool b_f = r_vert.is_B;
 				float P[3];
 
 				BM_ITER_ELEM (face, &iter_f, vert, BM_FACES_OF_VERT) {
@@ -4139,6 +4179,15 @@ static struct OpenSubdiv_EvaluatorDescr *create_osd_eval(DerivedMesh *dm, BMesh 
 	return osd_evaluator;
 }
 
+static void recalc_face_normals(BMesh *bm){
+	BMIter iter;
+	BMFace *f;
+
+	BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH){
+		BM_face_normal_update(f);
+	}
+}
+
 static void debug_colorize(BMesh *bm, const float cam_loc[3]){
 	BMIter iter;
 	BMFace *f;
@@ -4331,13 +4380,13 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		}
 
 		//Recalculate normals
-		BM_mesh_normals_update(bm);
+		recalc_face_normals(bm);
 
 		// (6.4) Optimization
 		if (mmd->flag & MOD_MYBMESH_OPTI){
 			optimization(&mesh_data);
 			//Recalculate normals
-			BM_mesh_normals_update(bm);
+			recalc_face_normals(bm);
 		}
 
 		debug_colorize(bm, cam_loc);
