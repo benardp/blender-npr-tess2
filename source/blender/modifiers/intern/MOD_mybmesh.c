@@ -578,7 +578,7 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 			float diff = traceS*traceS - 4.0f * detS;
 
 			if(diff >= 0){
-				float sqrtDiff = sqrt3f(diff);
+				float sqrtDiff = sqrtf(diff);
 				k1 = 0.5f * (traceS + sqrtDiff);
 				k2 = 0.5f * (traceS - sqrtDiff);
 				if(fabsf(k1) < fabsf(k2)){
