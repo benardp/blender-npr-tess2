@@ -522,10 +522,11 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 		copy_v3_v3(du_old, du);
 		copy_v3_v3(dv_old, dv);
 
-		if( u < 0.9f ){
-			step_u = 0.1f;
+		//TODO is there a better way to calc the second derivative?
+		if( u < 0.99f ){
+			step_u = 0.01f;
 		} else {
-			step_u = -0.1f;
+			step_u = -0.01f;
 		}
 
 		openSubdiv_evaluateLimit(eval, face_index, u + step_u, v, P, du, dv);
@@ -536,10 +537,10 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 		mul_v3_fl(dudu, 1.0f/step_u);
 		mul_v3_fl(dudv, 1.0f/step_u);
 
-		if( v < 0.9f ){
-			step_v = 0.1f;
+		if( v < 0.99f ){
+			step_v = 0.01f;
 		} else {
-			step_v = -0.1f;
+			step_v = -0.01f;
 		}
 
 		openSubdiv_evaluateLimit(eval, face_index, u, v + step_v, P, du, dv);
@@ -1809,7 +1810,7 @@ static void cusp_detection( MeshData *m_d ){
 				first_vert = false;
 				back_face = calc_if_B_nor(m_d->cam_loc, vert->co, vert->no);
 				b_arr[vert_idx] = back_face;
-			} else if (!found_face) {
+			} else {
 				//If one or more of the verts do not have the same facing, then we want to look for cusps
 				bool temp = calc_if_B_nor(m_d->cam_loc, vert->co, vert->no);
 				b_arr[vert_idx] = temp;
