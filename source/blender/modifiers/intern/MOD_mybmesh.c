@@ -737,6 +737,15 @@ static bool check_and_shift(BMVert *vert, const float new_loc[3], const float ne
 
 	float old_loc[3];
 
+	{
+		//Check if we will try to shift a pole.
+		//If we shift it, it may prevent interplation later on
+
+		BMVert *v = BLI_ghash_lookup(m_d->vert_hash, vert);
+		if( v && BM_vert_edge_count(v) > 4 ){
+			return false;
+		}
+	}
 	copy_v3_v3( old_loc, vert->co );
 
 	// Will the shift create folds?
