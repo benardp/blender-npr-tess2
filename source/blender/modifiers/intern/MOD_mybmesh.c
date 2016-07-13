@@ -1825,6 +1825,33 @@ static void cusp_detection( MeshData *m_d ){
 			continue;
 		}
 
+		{
+			//See if we are trying to insert a cusp on a face that already has a detected
+			//cusp edge. Skip searching for cusps if this is the case.
+			int edge_i;
+			BMEdge *edge;
+			BMIter iter_e;
+
+			bool found_cusp_edge = false;
+
+			BM_ITER_ELEM (edge, &iter_e, f, BM_EDGES_OF_FACE) {
+				for(edge_i = 0; edge_i < m_d->cusp_edges->count; edge_i++){
+					BMEdge* cusp_edge = BLI_buffer_at(m_d->cusp_edges, Cusp, edge_i).cusp_e;
+					if( edge == cusp_edge ){
+						found_cusp_edge = true;
+						break;
+					}
+				}
+				if( found_cusp_edge ){
+					break;
+				}
+			}
+
+			if( found_cusp_edge ){
+				continue;
+			}
+		}
+
 		//Find original mesh face + uv coords
 		{
 			float u_arr[3]; //array for u-coords (v1_u, v2_u ...)
