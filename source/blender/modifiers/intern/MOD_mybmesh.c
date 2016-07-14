@@ -2937,7 +2937,7 @@ static void radial_insertion( MeshData *m_d ){
 						}
 					}
 
-					if( true ){
+					if( diff_faces ){
 						//This search will spawn multiple faces, we must use coordinate space to do this.
 						float cent[3];
 						float edge1_mid[3];
@@ -2967,7 +2967,7 @@ static void radial_insertion( MeshData *m_d ){
 				}
 
 				//TODO check if it's worth to have two different search functions (one with diff faces and one with no diff faces)
-				/*{
+				{
 					//get center uv coords
 					float cent_uv[2] = {(u_arr[0] + u_arr[1] + u_arr[2]) / 3.0f, (v_arr[0] + v_arr[1] + v_arr[2]) / 3.0f};
 					//get edge uv midpoints
@@ -2984,20 +2984,6 @@ static void radial_insertion( MeshData *m_d ){
 
 					sub_v3_v3v3(temp, P, co_arr[CC_idx]);
 					search_val = dot_v3v3(rad_plane_no, temp);
-					//Did we get lucky?
-					if( fabs(search_val) < 1e-14 ){
-						//Insert new vertex
-						Vert_buf v_buf;
-						v_buf.orig_edge = NULL;
-						v_buf.orig_face = orig_face;
-						v_buf.u = cent_uv[0];
-						v_buf.v = cent_uv[1];
-						if( poke_and_move(f, P, du, dv, m_d) ){
-							BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
-						}
-						printf("got lucky\n");
-						continue;
-					}
 
 					{
 						int i;
@@ -3025,16 +3011,6 @@ static void radial_insertion( MeshData *m_d ){
 								}
 								step_len = step_len/2.0f;
 							}
-							{
-								Vert_buf v_buf;
-								v_buf.orig_edge = NULL;
-								v_buf.orig_face = orig_face;
-								v_buf.u = cent_uv[0];
-								v_buf.v = cent_uv[1];
-								if( poke_and_move(f, P, du, dv, m_d) ){
-									BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
-								}
-							}
 						} else {
 							for( i = 0; i < 10; i++){
 								interp_v2_v2v2( uv_P, edge2_mid, cent_uv, step);
@@ -3056,19 +3032,39 @@ static void radial_insertion( MeshData *m_d ){
 								}
 								step_len = step_len/2.0f;
 							}
-							{
-								Vert_buf v_buf;
-								v_buf.orig_edge = NULL;
-								v_buf.orig_face = orig_face;
-								v_buf.u = cent_uv[0];
-								v_buf.v = cent_uv[1];
-								if( poke_and_move(f, P, du, dv, m_d) ){
-									BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
+						}
+
+						{
+							Vert_buf v_buf;
+							Radi_vert r_vert;
+							v_buf.orig_edge = NULL;
+							v_buf.orig_face = orig_face;
+							v_buf.u = cent_uv[0];
+							v_buf.v = cent_uv[1];
+							if( poke_and_move(f, P, du, dv, &r_vert, m_d) ){
+								BMVert *b_vert;
+								bool is_B;
+
+								if( mod_i(CC_idx+1,3) == CC2_idx ){
+									b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
+								} else {
+									b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
 								}
+
+								copy_v3_v3(r_vert.radi_plane_no, rad_plane_no);
+								copy_v3_v3(r_vert.c_pos, co_arr[CC_idx]);
+								is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
+
+								r_vert.extendable = true;
+								r_vert.is_B = is_B;
+
+								BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
+								BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
 							}
 						}
+
 					}
-				}*/
+				}
 			}
 		}
 	}
@@ -4394,7 +4390,9 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		//TODO implement vertex shift (as an alternative to edge split)
 
 		if (mmd->flag & MOD_MYBMESH_CUSP_D) {
+			mesh_data.is_cusp = true;
 			cusp_detection(&mesh_data);
+			mesh_data.is_cusp = false;
 		}
 
 		if (mmd->flag & MOD_MYBMESH_FB_SPLIT) {
