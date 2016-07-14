@@ -114,6 +114,7 @@ typedef struct {
 	BLI_Buffer *shifted_verts;
 	BLI_Buffer *cusp_edges;
 	BLI_Buffer *C_verts;
+	BLI_Buffer *cusp_verts;
 	BLI_Buffer *radi_vert_buffer;
 	//Radial edge vert start idx
 	int radi_start_idx;
@@ -514,7 +515,7 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 
 	//get dudu dudv dvdv
 	{
-		float dudu[3], dudv[3], dvdv[3];
+		float dudu[3], dudv[3], dvdu[3], dvdv[3];
 		float du_old[3], dv_old[3];
 
 		float step_u, step_v;
@@ -523,33 +524,36 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 		copy_v3_v3(dv_old, dv);
 
 		//TODO is there a better way to calc the second derivative?
-		if( u < 0.99f ){
-			step_u = 0.01f;
+		if( u < 0.9f ){
+			step_u = 0.1f;
 		} else {
-			step_u = -0.01f;
+			step_u = -0.1f;
 		}
 
 		openSubdiv_evaluateLimit(eval, face_index, u + step_u, v, P, du, dv);
 
 		sub_v3_v3v3(dudu, du, du_old);
-		sub_v3_v3v3(dudv, dv, dv_old);
+		sub_v3_v3v3(dvdu, dv, dv_old);
 
 		mul_v3_fl(dudu, 1.0f/step_u);
 		mul_v3_fl(dudv, 1.0f/step_u);
 
-		if( v < 0.99f ){
-			step_v = 0.01f;
+		if( v < 0.9f ){
+			step_v = 0.1f;
 		} else {
-			step_v = -0.01f;
+			step_v = -0.1f;
 		}
 
 		openSubdiv_evaluateLimit(eval, face_index, u, v + step_v, P, du, dv);
 
 		sub_v3_v3v3(dvdv, dv, dv_old);
+		sub_v3_v3v3(dudv, du, du_old);
+
+		mul_v3_fl(dudv, 1.0f/step_v);
 		mul_v3_fl(dvdv, 1.0f/step_v);
 
 		II[0][0] = dot_v3v3(dudu, no);
-		II[0][1] = dot_v3v3(dudv, no);
+		II[0][1] = dot_v3v3(dvdu, no);
 		II[1][0] = dot_v3v3(dudv, no);
 		II[1][1] = dot_v3v3(dvdv, no);
 
@@ -2041,7 +2045,6 @@ static void cusp_detection( MeshData *m_d ){
 
 static void cusp_insertion(MeshData *m_d){
 	int cusp_i;
-
 	m_d->is_cusp = true;
 
 	for(cusp_i = 0; cusp_i < m_d->cusp_edges->count; cusp_i++){
@@ -2053,6 +2056,7 @@ static void cusp_insertion(MeshData *m_d){
 			if(  BM_vert_edge_count(cusp.cusp_e->v1) == 4 && check_and_shift(cusp.cusp_e->v1, cusp.cusp_co, cusp.cusp_no, m_d) ){
 				float uv_P[2] = { cusp.u, cusp.v };
 				append_vert(m_d->C_verts, cusp.cusp_e->v1);
+				append_vert(m_d->cusp_verts, cusp.cusp_e->v1);
 				add_shifted_vert( cusp.cusp_e->v1, cusp.orig_face, uv_P, m_d );
 				continue;
 			}
@@ -2060,6 +2064,7 @@ static void cusp_insertion(MeshData *m_d){
 			if(  BM_vert_edge_count(cusp.cusp_e->v2) == 4 && check_and_shift(cusp.cusp_e->v2, cusp.cusp_co, cusp.cusp_no, m_d) ){
 				float uv_P[2] = { cusp.u, cusp.v };
 				append_vert(m_d->C_verts, cusp.cusp_e->v2);
+				append_vert(m_d->cusp_verts, cusp.cusp_e->v2);
 				add_shifted_vert( cusp.cusp_e->v2, cusp.orig_face, uv_P, m_d );
 				continue;
 			}
@@ -2067,6 +2072,7 @@ static void cusp_insertion(MeshData *m_d){
 
 		vert = split_edge_and_move_nor(m_d->bm, cusp.cusp_e, cusp.cusp_co, cusp.cusp_no);
 		append_vert(m_d->C_verts, vert);
+		append_vert(m_d->cusp_verts, vert);
 
 		new_buf.orig_face = cusp.orig_face;
 		new_buf.orig_edge = NULL;
@@ -3103,6 +3109,11 @@ static void radial_flip( MeshData *m_d ){
 		BMVert *vert = BLI_buffer_at(m_d->C_verts, BMVert*, vert_i);
 		int edge_count = BM_vert_edge_count(vert);
 		BMEdge **edge_arr = BLI_array_alloca(edge_arr, edge_count);
+
+        if( is_C_vert(vert, m_d->cusp_verts) ){
+			//Do not flip cusp edges
+			continue;
+		}
 
 		BM_ITER_ELEM_INDEX (e, &iter_e, vert, BM_EDGES_OF_VERT, edge_idx) {
 			edge_arr[edge_idx] = e;
@@ -4363,6 +4374,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		BLI_buffer_declare_static(Vert_buf, shifted_verts, BLI_BUFFER_NOP, 32);
 		BLI_buffer_declare_static(Cusp, cusp_edges, BLI_BUFFER_NOP, 32);
 		BLI_buffer_declare_static(BMVert*, C_verts, BLI_BUFFER_NOP, 32);
+		BLI_buffer_declare_static(BMVert*, cusp_verts, BLI_BUFFER_NOP, 32);
 		BLI_buffer_declare_static(Radi_vert, radi_vert_buffer, BLI_BUFFER_NOP, 32);
 
 		MeshData mesh_data;
@@ -4376,6 +4388,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		mesh_data.shifted_verts = &shifted_verts;
 		mesh_data.cusp_edges = &cusp_edges;
 		mesh_data.C_verts = &C_verts;
+		mesh_data.cusp_verts = &cusp_verts;
 		mesh_data.radi_vert_buffer = &radi_vert_buffer;
 		mesh_data.is_cusp = false;
 		mesh_data.eval = osd_eval;
@@ -4431,6 +4444,7 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		BLI_buffer_free(&shifted_verts);
 		BLI_buffer_free(&cusp_edges);
 		BLI_buffer_free(&C_verts);
+		BLI_buffer_free(&cusp_verts);
 		BLI_buffer_free(&radi_vert_buffer);
 	}
 	result = CDDM_from_bmesh(bm, true);
