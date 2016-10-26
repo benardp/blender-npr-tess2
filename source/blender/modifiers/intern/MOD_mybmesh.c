@@ -498,10 +498,10 @@ static void split_BB_FF_edges(MeshData *m_d) {
 }
 
 static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, float u, float v, const float cam_loc[3]){
-	float du[3], dv[3], P[3], no[3], d1[3], d2[3];
+	float du[3], dv[3], dudu[3], dudv[3], dvdv[3], P[3], no[3], d1[3], d2[3];
 	float k1, k2;
 	float I[2][2], II[2][2];
-	openSubdiv_evaluateLimit(eval, face_index, u, v, P, du, dv);
+	openSubdiv_evaluateLimit2(eval, face_index, u, v, P, du, dv, dudu, dudv, dvdv);
 
 	cross_v3_v3v3(no, du, dv);
 	normalize_v3(no);
@@ -513,60 +513,16 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 	I[1][0] = dot_v3v3(du, dv);
 	I[1][1] = dot_v3v3(dv, dv);
 
-	//get dudu dudv dvdv
-	{
-		float dudu[3], dudv[3], dvdu[3], dvdv[3];
-		float du_old[3], dv_old[3];
-
-		float step_u, step_v;
-
-		copy_v3_v3(du_old, du);
-		copy_v3_v3(dv_old, dv);
-
-		//TODO is there a better way to calc the second derivative?
-		if( u < 0.9f ){
-			step_u = 0.1f;
-		} else {
-			step_u = -0.1f;
-		}
-
-		openSubdiv_evaluateLimit(eval, face_index, u + step_u, v, P, du, dv);
-
-		sub_v3_v3v3(dudu, du, du_old);
-		sub_v3_v3v3(dvdu, dv, dv_old);
-
-		mul_v3_fl(dudu, 1.0f/step_u);
-		mul_v3_fl(dudv, 1.0f/step_u);
-
-		if( v < 0.9f ){
-			step_v = 0.1f;
-		} else {
-			step_v = -0.1f;
-		}
-
-		openSubdiv_evaluateLimit(eval, face_index, u, v + step_v, P, du, dv);
-
-		sub_v3_v3v3(dvdv, dv, dv_old);
-		sub_v3_v3v3(dudv, du, du_old);
-
-		mul_v3_fl(dudv, 1.0f/step_v);
-		mul_v3_fl(dvdv, 1.0f/step_v);
-
-		II[0][0] = dot_v3v3(dudu, no);
-		II[0][1] = dot_v3v3(dvdu, no);
-		II[1][0] = dot_v3v3(dudv, no);
-		II[1][1] = dot_v3v3(dvdv, no);
-
-		copy_v3_v3(du, du_old);
-		copy_v3_v3(dv, dv_old);
-
-	}
+	II[0][0] = dot_v3v3(dudu, no);
+	II[0][1] = dot_v3v3(dudv, no);
+	II[1][0] = dot_v3v3(dudv, no);
+	II[1][1] = dot_v3v3(dvdv, no);
 	{
 		float S[2][2];
 		float detI = determinant_m2(I[0][0], I[0][1], I[1][0], I[1][1]);
 
-		if(fabsf(detI) < 1e-20){
-			detI = 1e-20;
+		if(fabsf(detI) < 1e-14){
+			detI = 1e-14;
 			printf("detI near zero!!!\n");
 		}
 
@@ -591,10 +547,10 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 					k1 = k2;
 					k2 = swap;
 				}
-				if(fabsf(S[1][0]) > 1e-20){
+				if(fabsf(S[1][0]) > 1e-14){
 					copy_v2_fl2(pdir1, k1 - S[1][1], S[1][0]);
 					copy_v2_fl2(pdir2, k2 - S[1][1], S[1][0]);
-				}else if (fabsf(S[0][1]) > 1e-20){
+				}else if (fabsf(S[0][1]) > 1e-14){
 					copy_v2_fl2(pdir1, S[0][1], k1 - S[0][0]);
 					copy_v2_fl2(pdir2, S[0][1], k2 - S[0][0]);
 				}
@@ -620,7 +576,7 @@ static float get_k_r(struct OpenSubdiv_EvaluatorDescr *eval, int face_index, flo
 	{
 		float view_vec[3], ndotv, sintheta, u2, v2, k_r;
 
-		sub_v3_v3v3(view_vec, P, cam_loc);
+		sub_v3_v3v3(view_vec, cam_loc, P);
 		normalize_v3(view_vec);
 
 		ndotv = dot_v3v3(no, view_vec);
@@ -1120,7 +1076,7 @@ static void mult_face_search( BMFace *f, BMFace *f2, const float v1_uv[2], const
 
 				face_dir = get_facing_dir(m_d->cam_loc, P, du, dv);
 
-				if( fabs(face_dir) < 1e-20 ){
+				if( fabs(face_dir) < 1e-14 ){
 					//We got lucky and found the zero crossing!
 					printf("--->> got lucky\n");
 					break;
@@ -1192,7 +1148,7 @@ static bool bisect_search(const float v1_uv[2], const float v2_uv[2], BMEdge *e,
 		openSubdiv_evaluateLimit(m_d->eval, face_index, uv_P[0], uv_P[1], P, du, dv);
 		face_dir = get_facing_dir(m_d->cam_loc, P, du, dv);
 
-		if( fabs(face_dir) < 1e-20 ){
+		if( fabs(face_dir) < 1e-14 ){
 			//We got lucky and found the zero crossing!
 			printf("--->> got lucky\n");
 			break;
