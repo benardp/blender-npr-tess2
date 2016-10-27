@@ -44,7 +44,7 @@
 #include "BLI_buffer.h"
 #include "BLI_alloca.h"
 #include "BLI_ghash.h"
-#include "BLI_linklist.h"
+#include "BLI_gsqueue.h"
 #include "BLI_memarena.h"
 
 /* only for defines */
@@ -86,6 +86,14 @@ typedef struct {
 
 	float u, v;
 } Cusp;
+
+typedef struct {
+	bool b_arr[3];
+    bool kr_arr[3];
+	float co_arr[3][3];
+	float u_arr[3];
+	float v_arr[3];
+} Cusp_triang;
 
 typedef struct {
 	BMVert *vert;
@@ -1451,236 +1459,106 @@ static void contour_insertion( MeshData *m_d ) {
 	}
 }
 
-static bool cusp_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float cam_loc[3], float co_arr[3][3],
-		const bool b_arr[3], const float u_arr[3], const float v_arr[3], const int face_index, Cusp *cusp){
-	//If area is <= 1e-14, then we set the center of the triangle as the cusp
-	//TODO the paper has 1e-20
-	if( area_tri_v3(co_arr[0], co_arr[1], co_arr[2]) <= 1e-14 ){
-		float cusp_co[3];
-		float cusp_no[3];
-		float du[3], dv[3];
+static bool cusp_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float cam_loc[3], const int face_index, Cusp_triang *c_tri, Cusp *cusp){
 
-		float uv1[3] = { u_arr[0], v_arr[0], 0 };
-		float uv2[3] = { u_arr[1], v_arr[1], 0 };
-		float uv3[3] = { u_arr[2], v_arr[2], 0 };
+		GSQueue *tri_que = BLI_gsqueue_new(sizeof(Cusp_triang));
+        BLI_gsqueue_pushback(tri_que, c_tri);
 
-		float res_uv[3];
+		bool sign_cross(const bool bool_arr[3]){
+			int i;
+			bool temp = bool_arr[0];
+			for(i = 1; i < 3; i++){
+				if(temp != bool_arr[i]){
+					return true;
+				}
+			}
+			return false;
+		}
 
-		cent_tri_v3(res_uv, uv1, uv2, uv3);
-		openSubdiv_evaluateLimit(eval, face_index, res_uv[0], res_uv[1], cusp_co, du, dv);
-		cross_v3_v3v3(cusp_no, du, dv);
-		normalize_v3(cusp_no);
+		//Add this because it seems to get stuck sometimes because the triangles never becomes small enough
+		//TODO maybe find a better end condition?
+		int iteration = 0;
 
-		copy_v3_v3(cusp->cusp_co, cusp_co);
-		copy_v3_v3(cusp->cusp_no, cusp_no);
-		cusp->u = res_uv[0];
-		cusp->v = res_uv[1];
-		return true;
-	}
+		while ( !BLI_gsqueue_is_empty(tri_que) ){
+            Cusp_triang cur_tri;
+			BLI_gsqueue_pop(tri_que, &cur_tri);
 
-	bool normal_sign_cross(const bool bool_arr[3]){
-		int i;
-		bool temp = bool_arr[0];
-		for(i = 1; i < 3; i++){
-			if(temp != bool_arr[i]){
+			if( !( sign_cross(cur_tri.b_arr) && sign_cross(cur_tri.kr_arr) ) ){
+				continue;
+			}
+
+            iteration++;
+
+			if( area_tri_v3(cur_tri.co_arr[0], cur_tri.co_arr[1], cur_tri.co_arr[2]) <= 1e-14 ||
+				iteration > 1000){
+				float cusp_co[3];
+				float cusp_no[3];
+				float du[3], dv[3];
+
+				float uv1[3] = { cur_tri.u_arr[0], cur_tri.v_arr[0], 0 };
+				float uv2[3] = { cur_tri.u_arr[1], cur_tri.v_arr[1], 0 };
+				float uv3[3] = { cur_tri.u_arr[2], cur_tri.v_arr[2], 0 };
+
+				float res_uv[3];
+
+				cent_tri_v3(res_uv, uv1, uv2, uv3);
+				openSubdiv_evaluateLimit(eval, face_index, res_uv[0], res_uv[1], cusp_co, du, dv);
+				cross_v3_v3v3(cusp_no, du, dv);
+				normalize_v3(cusp_no);
+
+				copy_v3_v3(cusp->cusp_co, cusp_co);
+				copy_v3_v3(cusp->cusp_no, cusp_no);
+				cusp->u = res_uv[0];
+				cusp->v = res_uv[1];
+				BLI_gsqueue_free(tri_que);
 				return true;
 			}
+
+            int best_edge = 0;
+
+			{
+				float edge_len = len_v3v3(cur_tri.co_arr[0], cur_tri.co_arr[1]);
+				for( int i = 1; i < 3; i++ ){
+                    float len = len_v3v3(cur_tri.co_arr[i], cur_tri.co_arr[(i+1)%3]);
+					if( len > edge_len ){
+						best_edge = i;
+						edge_len = len;
+					}
+				}
+			}
+
+			float uv_1[] = {cur_tri.u_arr[best_edge], cur_tri.v_arr[best_edge]};
+			float uv_2[] = {cur_tri.u_arr[(best_edge+1)%3], cur_tri.v_arr[(best_edge+1)%3]};
+			float new_uv[2], new_co[3], du[3], dv[3];
+
+			interp_v2_v2v2( new_uv, uv_1, uv_2, 0.5f);
+			openSubdiv_evaluateLimit(eval, face_index, new_uv[0], new_uv[1], new_co, du, dv);
+			bool new_b = calc_if_B(cam_loc, new_co, du, dv);
+			bool new_kr = get_k_r(eval, face_index, new_uv[0], new_uv[1], cam_loc) > 0;
+
+			for( int i = 0; i < 2; i++ ){
+				Cusp_triang new_tri;
+				copy_v3_v3(new_tri.b_arr, cur_tri.b_arr);
+				copy_v3_v3(new_tri.kr_arr, cur_tri.kr_arr);
+				copy_v3_v3(new_tri.u_arr, cur_tri.u_arr);
+				copy_v3_v3(new_tri.v_arr, cur_tri.v_arr);
+				copy_v3_v3(new_tri.co_arr[0], cur_tri.co_arr[0]);
+				copy_v3_v3(new_tri.co_arr[1], cur_tri.co_arr[1]);
+				copy_v3_v3(new_tri.co_arr[2], cur_tri.co_arr[2]);
+
+				new_tri.b_arr[ (best_edge + i)%3 ] = new_b;
+				new_tri.kr_arr[ (best_edge + i)%3 ] = new_kr;
+				new_tri.u_arr[ (best_edge + i)%3 ] = new_uv[0];
+				new_tri.v_arr[ (best_edge + i)%3 ] = new_uv[1];
+				copy_v3_v3(new_tri.co_arr[ (best_edge + i)%3 ], new_co);
+
+				BLI_gsqueue_pushback(tri_que, &new_tri);
+			}
+
 		}
+
+		BLI_gsqueue_free(tri_que);
 		return false;
-	}
-
-	bool k_r_sign_cross(const float u[3], const float v[3]){
-		float k_r1 = get_k_r(eval, face_index, u[0], v[0], cam_loc);
-		float k_r2 = get_k_r(eval, face_index, u[1], v[1], cam_loc);
-		if( (k_r1 > 0) != (k_r2 > 0) ){
-			//k_r sign crossing!
-			return true;
-		} else {
-			//check last vert
-			float k_r3 = get_k_r(eval, face_index, u[2], v[2], cam_loc);
-			if( (k_r1 > 0) != (k_r3 > 0) ){
-				return true;
-			}
-		}
-		return false;
-	}
-
-	//print_m3("co_arr", co_arr);
-
-	//printf("area: %.20f\n", area_tri_v3(co_arr[0], co_arr[1], co_arr[2]));
-
-	{
-		//Which edge is the longest in parameter space?
-		float e1_len, e2_len, e3_len, du[3], dv[3];
-		float new_co[3], uv_co[2];
-		bool new_b;
-
-		e1_len = len_v3v3(co_arr[0], co_arr[1]);
-		e2_len = len_v3v3(co_arr[0], co_arr[2]);
-		e3_len = len_v3v3(co_arr[1], co_arr[2]);
-
-		/*
-		printf("Before edge len\n");
-		printf("e1: %f\n", e1_len);
-		printf("e2: %f\n", e2_len);
-		printf("e3: %f\n", e3_len);
-		*/
-
-		//TODO there must be a way to reuse more code here...
-		if(e1_len >= e2_len){
-			if(e1_len >= e3_len){
-				//e1
-				float uv_1[] = {u_arr[0], v_arr[0]};
-				float uv_2[] = {u_arr[1], v_arr[1]};
-
-				interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-				openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-				new_b = calc_if_B(cam_loc, new_co, du, dv);
-				{
-					bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-					float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-					float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-					if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[1], new_co);
-						if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-							return true;
-						}
-					}
-				}
-				{
-					bool new_b_arr[3] = { new_b, b_arr[1], b_arr[2] };
-					float new_u_arr[3] = { uv_co[0], u_arr[1], u_arr[2] };
-					float new_v_arr[3] = { uv_co[1], v_arr[1], v_arr[2] };
-
-					if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[0], new_co);
-						if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-							return true;
-						}
-					}
-				}
-			} else {
-				//e3
-				float uv_1[] = {u_arr[2], v_arr[2]};
-				float uv_2[] = {u_arr[1], v_arr[1]};
-
-				interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-				openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-				new_b = calc_if_B(cam_loc, new_co, du, dv);
-
-				{
-					bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-					float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-					float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-					if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[1], new_co);
-						if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-							return true;
-						}
-					}
-				}
-				{
-					bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-					float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-					float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-					if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[2], new_co);
-						if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-							return true;
-						}
-					}
-				}
-			}
-		} else if (e2_len >= e3_len) {
-			//e2
-			float uv_1[] = {u_arr[0], v_arr[0]};
-			float uv_2[] = {u_arr[2], v_arr[2]};
-
-			interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-			openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-			new_b = calc_if_B(cam_loc, new_co, du, dv);
-
-			{
-				bool new_b_arr[3] = { new_b, b_arr[1], b_arr[2] };
-				float new_u_arr[3] = { uv_co[0], u_arr[1], u_arr[2] };
-				float new_v_arr[3] = { uv_co[1], v_arr[1], v_arr[2] };
-
-				if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[0], new_co);
-					if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-						return true;
-					}
-				}
-			}
-			{
-				bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-				float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-				float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-				if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[2], new_co);
-					if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-						return true;
-					}
-				}
-			}
-		} else {
-			//e3
-			float uv_1[] = {u_arr[2], v_arr[2]};
-			float uv_2[] = {u_arr[1], v_arr[1]};
-
-			interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-			openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-			new_b = calc_if_B(cam_loc, new_co, du, dv);
-
-			{
-				bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-				float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-				float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-				if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[1], new_co);
-					if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-						return true;
-					}
-				}
-			}
-			{
-				bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-				float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-				float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-				if( normal_sign_cross(new_b_arr) && k_r_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[2], new_co);
-					if(cusp_triangle(eval, cam_loc, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, cusp)){
-						return true;
-					}
-				}
-			}
-		}
-
-	}
-
-	return false;
 }
 
 static BMFace *get_orig_face(int orig_verts, const BMVert *vert_arr_in[3], float u_arr[3], float v_arr[3], float co_arr[3][3], MeshData *m_d){
@@ -1833,6 +1711,7 @@ static void cusp_detection( MeshData *m_d ){
 				//Check for k_r sign crossings
 				float k_r1 = get_k_r(m_d->eval, face_index, u_arr[0], v_arr[0], m_d->cam_loc);
 				float k_r2 = get_k_r(m_d->eval, face_index, u_arr[1], v_arr[1], m_d->cam_loc);
+				float k_r3 = get_k_r(m_d->eval, face_index, u_arr[2], v_arr[2], m_d->cam_loc);
 				bool k_r_crossing = false;
 				if( (k_r1 > 0) != (k_r2 > 0) ){
 					//k_r sign crossing!
@@ -1840,7 +1719,6 @@ static void cusp_detection( MeshData *m_d ){
 					k_r_crossing = true;
 				} else {
 					//check last vert
-					float k_r3 = get_k_r(m_d->eval, face_index, u_arr[2], v_arr[2], m_d->cam_loc);
 					if( (k_r1 > 0) != (k_r3 > 0) ){
 						//printf("found k_r sign crossing\n");
 						k_r_crossing = true;
@@ -1849,9 +1727,21 @@ static void cusp_detection( MeshData *m_d ){
 
 				if(k_r_crossing){
 					Cusp cusp;
+					Cusp_triang c_tri;
 					cusp.orig_face = orig_face;
+
+                    copy_v3_v3(c_tri.b_arr, b_arr);
+                    copy_v3_v3(c_tri.u_arr, u_arr);
+                    copy_v3_v3(c_tri.v_arr, v_arr);
+                    copy_v3_v3(c_tri.co_arr[0], co_arr[0]);
+                    copy_v3_v3(c_tri.co_arr[1], co_arr[1]);
+                    copy_v3_v3(c_tri.co_arr[2], co_arr[2]);
+					c_tri.kr_arr[0] = k_r1 > 0;
+					c_tri.kr_arr[1] = k_r2 > 0;
+					c_tri.kr_arr[2] = k_r3 > 0;
+
 					//Start looking for the cusp in the triangle
-					if(cusp_triangle(m_d->eval, m_d->cam_loc, co_arr, b_arr, u_arr, v_arr, face_index, &cusp)){
+					if(cusp_triangle(m_d->eval, m_d->cam_loc, face_index, &c_tri, &cusp)){
 						//We found a cusp!
 						float uv_1[2], uv_2[2], uv_3[2];
 						BMEdge *edge;
