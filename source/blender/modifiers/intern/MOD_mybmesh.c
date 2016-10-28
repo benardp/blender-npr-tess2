@@ -1107,9 +1107,6 @@ static void mult_face_search( BMFace *f, BMFace *f2, const float v1_uv[2], const
 					append_vert(m_d->C_verts, e->v1);
 					add_shifted_vert( e->v1, cur_face, uv_P, m_d );
 					return;
-				} else if( len_v3v3(P, e->v1->co) < BM_edge_calc_length(e) * 0.01f ){
-					append_vert(m_d->C_verts, e->v1);
-					return;
 				}
 			} else if (len_v3v3(P, e->v2->co) < BM_edge_calc_length(e) * 0.2f ){
 				if(check_and_shift(e->v2, P, new_no, m_d) ){
@@ -1117,9 +1114,6 @@ static void mult_face_search( BMFace *f, BMFace *f2, const float v1_uv[2], const
 				append_vert(m_d->C_verts, e->v2);
 				add_shifted_vert( e->v2, cur_face, uv_P, m_d );
 				return;
-				} else if( len_v3v3(P, e->v2->co) < BM_edge_calc_length(e) * 0.01f ){
-					append_vert(m_d->C_verts, e->v2);
-					return;
 				}
 			}
 
@@ -1179,18 +1173,12 @@ static bool bisect_search(const float v1_uv[2], const float v2_uv[2], BMEdge *e,
 			append_vert(m_d->C_verts, e->v1);
 			add_shifted_vert( e->v1, orig_face, uv_P, m_d );
 			return false;
-		} else if( len_v3v3(P, e->v1->co) < BM_edge_calc_length(e) * 0.01f ){
-			append_vert(m_d->C_verts, e->v1);
-			return false;
 		}
 	} else if (len_v3v3(P, e->v2->co) < BM_edge_calc_length(e) * 0.2f ){
 		if( check_and_shift(e->v2, P, new_no, m_d) ){
 			//Do not insert a new vert here, shift it instead
 			append_vert(m_d->C_verts, e->v2);
 			add_shifted_vert( e->v2, orig_face, uv_P, m_d );
-			return false;
-		} else if( len_v3v3(P, e->v2->co) < BM_edge_calc_length(e) * 0.01f ){
-			append_vert(m_d->C_verts, e->v2);
 			return false;
 		}
 	}
@@ -1930,243 +1918,6 @@ static void cusp_insertion(MeshData *m_d){
 	m_d->is_cusp = false;
 }
 
-static bool rad_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float rad_plane_no1[3], const float rad_plane_no2[3],
-		const float CC1_pos[3], const float CC2_pos[3], float co_arr[3][3],
-		const bool b_arr[3], const float u_arr[3], const float v_arr[3], const int face_index, float uv[2]){
-	//If area is <= 1e-14, then we set the center of the triangle as the cusp
-	//TODO the paper has 1e-20
-	if( area_tri_v3(co_arr[0], co_arr[1], co_arr[2]) <= 1e-14 ){
-		uv[0] = ( u_arr[0] + u_arr[1] + u_arr[3] ) / 3.0f;
-		uv[1] = ( v_arr[0] + v_arr[1] + v_arr[3] ) / 3.0f;
-
-		return true;
-	}
-
-	bool rad1_sign_cross(const bool bool_arr[3]){
-		int i;
-		bool temp = bool_arr[0];
-		for(i = 1; i < 3; i++){
-			if(temp != bool_arr[i]){
-				return true;
-			}
-		}
-		return false;
-	}
-
-	bool rad2_sign_cross(const float u[3], const float v[3]){
-		float temp[3], P[3], val1, val2;
-
-		openSubdiv_evaluateLimit(eval, face_index, u[0], v[0], P, NULL, NULL);
-
-		sub_v3_v3v3(temp, P, CC2_pos);
-		val1 = dot_v3v3(rad_plane_no2, temp);
-
-		openSubdiv_evaluateLimit(eval, face_index, u[1], v[1], P, NULL, NULL);
-
-		sub_v3_v3v3(temp, P, CC2_pos);
-		val2 = dot_v3v3(rad_plane_no2, temp);
-
-		if( (val1 > 0) != (val2 > 0) ){
-			//rad sign crossing!
-			return true;
-		} else {
-			//check last vert
-			float val3;
-
-			openSubdiv_evaluateLimit(eval, face_index, u[2], v[2], P, NULL, NULL);
-
-			sub_v3_v3v3(temp, P, CC2_pos);
-			val3 = dot_v3v3(rad_plane_no2, temp);
-			if( (val1 > 0) != (val3 > 0) ){
-				return true;
-			}
-		}
-		return false;
-	}
-
-	//print_m3("co_arr", co_arr);
-
-	//printf("area: %.20f\n", area_tri_v3(co_arr[0], co_arr[1], co_arr[2]));
-
-	{
-		//Which edge is the longest in parameter space?
-		float e1_len, e2_len, e3_len, du[3], dv[3];
-		float new_co[3], temp[3], uv_co[2];
-		bool new_b;
-
-		e1_len = len_v3v3(co_arr[0], co_arr[1]);
-		e2_len = len_v3v3(co_arr[0], co_arr[2]);
-		e3_len = len_v3v3(co_arr[1], co_arr[2]);
-
-		/*
-		printf("Before edge len\n");
-		printf("e1: %f\n", e1_len);
-		printf("e2: %f\n", e2_len);
-		printf("e3: %f\n", e3_len);
-		*/
-
-		//TODO there must be a way to reuse more code here...
-		if(e1_len >= e2_len){
-			if(e1_len >= e3_len){
-				//e1
-				float uv_1[] = {u_arr[0], v_arr[0]};
-				float uv_2[] = {u_arr[1], v_arr[1]};
-
-				interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-				openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-				sub_v3_v3v3(temp, new_co, CC1_pos);
-				new_b = (dot_v3v3(rad_plane_no1, temp) > 0);
-				{
-					bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-					float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-					float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-					if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[1], new_co);
-						if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-							return true;
-						}
-					}
-				}
-				{
-					bool new_b_arr[3] = { new_b, b_arr[1], b_arr[2] };
-					float new_u_arr[3] = { uv_co[0], u_arr[1], u_arr[2] };
-					float new_v_arr[3] = { uv_co[1], v_arr[1], v_arr[2] };
-
-					if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[0], new_co);
-						if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-							return true;
-						}
-					}
-				}
-			} else {
-				//e3
-				float uv_1[] = {u_arr[2], v_arr[2]};
-				float uv_2[] = {u_arr[1], v_arr[1]};
-
-				interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-				openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-				sub_v3_v3v3(temp, new_co, CC1_pos);
-				new_b = (dot_v3v3(rad_plane_no1, temp) > 0);
-
-				{
-					bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-					float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-					float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-					if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[1], new_co);
-						if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-							return true;
-						}
-					}
-				}
-				{
-					bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-					float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-					float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-					if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-						float new_co_arr[3][3];
-						copy_m3_m3(new_co_arr, co_arr);
-						copy_v3_v3(new_co_arr[2], new_co);
-						if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-							return true;
-						}
-					}
-				}
-			}
-		} else if (e2_len >= e3_len) {
-			//e2
-			float uv_1[] = {u_arr[0], v_arr[0]};
-			float uv_2[] = {u_arr[2], v_arr[2]};
-
-			interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-			openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-			sub_v3_v3v3(temp, new_co, CC1_pos);
-			new_b = (dot_v3v3(rad_plane_no1, temp) > 0);
-
-			{
-				bool new_b_arr[3] = { new_b, b_arr[1], b_arr[2] };
-				float new_u_arr[3] = { uv_co[0], u_arr[1], u_arr[2] };
-				float new_v_arr[3] = { uv_co[1], v_arr[1], v_arr[2] };
-
-				if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[0], new_co);
-					if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-						return true;
-					}
-				}
-			}
-			{
-				bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-				float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-				float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-				if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[2], new_co);
-					if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-						return true;
-					}
-				}
-			}
-		} else {
-			//e3
-			float uv_1[] = {u_arr[2], v_arr[2]};
-			float uv_2[] = {u_arr[1], v_arr[1]};
-
-			interp_v2_v2v2( uv_co, uv_1, uv_2, 0.5f);
-			openSubdiv_evaluateLimit(eval, face_index, uv_co[0], uv_co[1], new_co, du, dv);
-			sub_v3_v3v3(temp, new_co, CC1_pos);
-			new_b = (dot_v3v3(rad_plane_no1, temp) > 0);
-
-			{
-				bool new_b_arr[3] = { b_arr[0], new_b, b_arr[2] };
-				float new_u_arr[3] = { u_arr[0], uv_co[0], u_arr[2] };
-				float new_v_arr[3] = { v_arr[0], uv_co[1], v_arr[2] };
-
-				if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[1], new_co);
-					if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-						return true;
-					}
-				}
-			}
-			{
-				bool new_b_arr[3] = { b_arr[0], b_arr[1], new_b };
-				float new_u_arr[3] = { u_arr[0], u_arr[1], uv_co[0] };
-				float new_v_arr[3] = { v_arr[0], v_arr[1], uv_co[1] };
-
-				if( rad1_sign_cross(new_b_arr) && rad2_sign_cross(new_u_arr, new_v_arr) ){
-					float new_co_arr[3][3];
-					copy_m3_m3(new_co_arr, co_arr);
-					copy_v3_v3(new_co_arr[2], new_co);
-					if(rad_triangle(eval, rad_plane_no1, rad_plane_no2, CC1_pos, CC2_pos, new_co_arr, new_b_arr, new_u_arr, new_v_arr, face_index, uv)){
-						return true;
-					}
-				}
-			}
-		}
-
-	}
-
-	return false;
-}
-
-
 static bool is_C_vert(BMVert *v, BLI_Buffer *C_verts){
 	int vert_j;
 	for(vert_j = 0; vert_j < C_verts->count; vert_j++){
@@ -2344,7 +2095,7 @@ static bool poke_and_move(BMFace *f, const float new_pos[3], const float du[3], 
 	return true;
 }
 
-static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const float edge1_mid[3], const float edge2_mid[3],
+static void mult_radi_search( BLI_Buffer *diff_f, const float cent[3], const float edge1_mid[3], const float edge2_mid[3],
 							const float val_1, const float val_2, bool is_B,
 							const float rad_plane_no[3], const float C_vert_pos[3], BMFace *poke_face, MeshData *m_d ){
 	//Try to find a vert that is connected to both faces
@@ -2355,8 +2106,8 @@ static void mult_radi_search( BMFace *diff_f[3], const float cent[3], const floa
 	bool found_vert = false;
 	float mat[3][3];
 
-	for(f_idx = 0; f_idx < 3; f_idx++){
-		BMFace *f = diff_f[f_idx];
+	for(f_idx = 0; f_idx < diff_f->count; f_idx++){
+		BMFace *f = BLI_buffer_at(diff_f, BMFace*, f_idx);
 		BM_ITER_ELEM (vert, &iter_v, f, BM_VERTS_OF_FACE) {
 			if( !BM_vert_is_boundary(vert) && BM_vert_edge_count(vert) == BM_vert_face_count(vert) ){
 				bool e1 = false;
@@ -2601,7 +2352,7 @@ static void radial_insertion( MeshData *m_d ){
 		int face_count = BM_vert_face_count(vert);
 		BMFace **face_arr = BLI_array_alloca(face_arr, face_count);
         /*
-		if( BM_elem_index_get(vert) != 313 ){
+		if( BM_elem_index_get(vert) != 318 ){
 			continue;
 		}
         */
@@ -2642,15 +2393,10 @@ static void radial_insertion( MeshData *m_d ){
 			}
 
 			{
-				float u_arr[3]; //array for u-coords (v1_u, v2_u ...)
-				float v_arr[3];
-
 				float val_1, val_2;
 				float temp[3];
 
 				float cam_vec[3], rad_plane_no[3];
-
-				BMFace *orig_face;
 
 				sub_v3_v3v3(cam_vec, m_d->cam_loc, co_arr[CC_idx]);
 				cross_v3_v3v3(rad_plane_no, vert_arr[CC_idx]->no, cam_vec);
@@ -2671,10 +2417,6 @@ static void radial_insertion( MeshData *m_d ){
 					}
 				}
 
-				//get uv coord and orig face
-				//TODO rewrite get_orig_face to handle shifted verts.
-				//Or just rewrite it in here and leave get_orig_face alone
-				orig_face = get_orig_face(orig_verts, vert_arr, u_arr, v_arr, co_arr, m_d);
 				if( CC2_idx != -1 ){
 					//This face has an CC edge
 					//Do the radial planes intersect?
@@ -2694,70 +2436,19 @@ static void radial_insertion( MeshData *m_d ){
 					val2_2 = dot_v3v3(rad_plane_no2, temp);
 
 					if( signf(val2_1) != signf(val2_2) ){
-						//TODO Check if this really works
-						//TODO rewrite this to handle shifted verts
-						int face_index = BM_elem_index_get(orig_face);
-						float uv[2];
-						bool b_arr[3];
-
-						b_arr[mod_i(CC_idx-1, 3)] = (val_1 > 0);
-						b_arr[mod_i(CC_idx+1, 3)] = (val_2 > 0);
-						b_arr[CC_idx] = false;
+						//TODO Implement this edge case
 						printf("Radial intersect!\n");
-						if (rad_triangle(m_d->eval, rad_plane_no, rad_plane_no2, co_arr[CC_idx], co_arr[CC2_idx],
-									co_arr, b_arr, u_arr, v_arr, face_index, uv))
-						{
-							float P[3], du[3], dv[3];
-							Vert_buf v_buf;
-							Radi_vert r_vert;
-							v_buf.orig_edge = NULL;
-							v_buf.orig_face = orig_face;
-							v_buf.u = uv[0];
-							v_buf.v = uv[1];
-
-							openSubdiv_evaluateLimit(m_d->eval, face_index, uv[0], uv[1], P, du, dv);
-							if( poke_and_move(f, P, du, dv, &r_vert, m_d) ){
-								BMVert *b_vert;
-								bool is_B;
-
-								if( mod_i(CC_idx+1,3) == CC2_idx ){
-									b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
-								} else {
-									b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
-								}
-
-								is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
-
-								r_vert.extendable = false;
-								r_vert.is_B = is_B;
-
-								BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
-								BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
-							}
-							printf("Found radi point!\n");
-							continue;
-						}
 					}
 				}
 
 				{
-					int i;
-					bool diff_faces = false;
-					BMFace *faces[3];
+					BLI_buffer_declare_static(BMFace*, faces, BLI_BUFFER_NOP, 32);
 					//Check if the triangle has been shifted so we can't use the original face for UV coords
-					for(i = 0; i < 3; i++){
+					for(int i = 0; i < 3; i++){
 						Vert_buf* vert = get_shift_vert( vert_arr[i], m_d );
 						if( vert != NULL ){
 							//This vert has been shifted
-							if(vert->orig_face != orig_face){
-								//We have shifted this vert into an other face.
-								//Now we have to interpolate on multiple faces
-								diff_faces = true;
-							}
-							faces[i] = vert->orig_face;
-							//Update to new uv pos
-							u_arr[i] = vert->u;
-							v_arr[i] = vert->v;
+							BLI_buffer_append(&faces, BMFace*, vert->orig_face);
 						} else {
 							//Check if edge verts doesn't belong to orig_face
 							int v_idx = BM_elem_index_get(vert_arr[i]);
@@ -2766,157 +2457,52 @@ static void radial_insertion( MeshData *m_d ){
 								if( v_buf.orig_edge != NULL ){
 									BMIter iter_f;
 									BMFace *face;
-									bool found_face = false;
 
-									//TODO try to find a edge face that is next to orig_face if none of them is orig_face
 									BM_ITER_ELEM (face, &iter_f, v_buf.orig_edge, BM_FACES_OF_EDGE){
-										if(face == orig_face){
-											found_face = true;
-											break;
-										}
+										BLI_buffer_append(&faces, BMFace*, face);
 									}
-
-									if(!found_face){
-										faces[i] = v_buf.orig_face;
-										u_arr[i] = v_buf.u;
-										v_arr[i] = v_buf.v;
-										diff_faces = true;
-										continue;
-									}
+								} else {
+									BLI_buffer_append(&faces, BMFace*, v_buf.orig_face);
 								}
+							} else {
+								BMIter iter_f;
+								BMFace *face;
+								BMVert *temp_v = BLI_ghash_lookup(m_d->vert_hash, vert_arr[i]);
+
+								BM_ITER_ELEM (face, &iter_f, temp_v, BM_FACES_OF_VERT) {
+									BLI_buffer_append(&faces, BMFace*, face);
+								}
+
 							}
-							faces[i] = orig_face;
 						}
 					}
 
-					if( diff_faces ){
-						//This search will spawn multiple faces, we must use coordinate space to do this.
-						float cent[3];
-						float edge1_mid[3];
-						float edge2_mid[3];
-						//We need to figure out which facing the radial edge is supposed to have so we can
-						//try to fix it later if the inserted radial vert has the wrong facing
-                        bool is_B;
-						BMVert *b_vert;
+					//This search will spawn multiple faces, we must use coordinate space to do this.
+					float cent[3];
+					float edge1_mid[3];
+					float edge2_mid[3];
+					//We need to figure out which facing the radial edge is supposed to have so we can
+					//try to fix it later if the inserted radial vert has the wrong facing
+					bool is_B;
+					BMVert *b_vert;
 
-						if( mod_i(CC_idx+1,3) == CC2_idx ){
-							b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
-						} else {
-							b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
-						}
-
-						is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
-
-						interp_v3_v3v3(edge1_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx-1, 3) ], 0.5f);
-						interp_v3_v3v3(edge2_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx+1, 3) ], 0.5f);
-						cent_tri_v3(cent, co_arr[0], co_arr[1], co_arr[2]);
-
-						printf("Diff faces\n");
-						mult_radi_search(faces, cent, edge1_mid, edge2_mid, val_1, val_2, is_B, rad_plane_no, co_arr[CC_idx], f, m_d);
-						continue;
+					if( mod_i(CC_idx+1,3) == CC2_idx ){
+						b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
+					} else {
+						b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
 					}
 
+					is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
+
+					interp_v3_v3v3(edge1_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx-1, 3) ], 0.5f);
+					interp_v3_v3v3(edge2_mid, co_arr[CC_idx], co_arr[ mod_i(CC_idx+1, 3) ], 0.5f);
+					cent_tri_v3(cent, co_arr[0], co_arr[1], co_arr[2]);
+
+					printf("Diff faces\n");
+					mult_radi_search(&faces, cent, edge1_mid, edge2_mid, val_1, val_2, is_B, rad_plane_no, co_arr[CC_idx], f, m_d);
+					BLI_buffer_free(&faces);
 				}
 
-				//TODO check if it's worth to have two different search functions (one with diff faces and one with no diff faces)
-				{
-					//get center uv coords
-					float cent_uv[2] = {(u_arr[0] + u_arr[1] + u_arr[2]) / 3.0f, (v_arr[0] + v_arr[1] + v_arr[2]) / 3.0f};
-					//get edge uv midpoints
-					float edge1_mid[2] = { 0.5f * (u_arr[CC_idx] + u_arr[ mod_i(CC_idx-1, 3) ]),
-										0.5f * (v_arr[CC_idx] + v_arr[ mod_i(CC_idx-1, 3) ]) };
-					float edge2_mid[2] = { 0.5f * (u_arr[CC_idx] + u_arr[ mod_i(CC_idx+1, 3) ]),
-										0.5f * (v_arr[CC_idx] + v_arr[ mod_i(CC_idx+1, 3) ]) };
-
-					int	face_index = BM_elem_index_get(orig_face);
-					float du[3], dv[3], P[3];
-					float search_val;
-					//Begin search
-					openSubdiv_evaluateLimit(m_d->eval, face_index, cent_uv[0], cent_uv[1], P, du, dv);
-
-					sub_v3_v3v3(temp, P, co_arr[CC_idx]);
-					search_val = dot_v3v3(rad_plane_no, temp);
-
-					{
-						int i;
-						float uv_P[2];
-						float step = 0.5f;
-						float step_len = 0.25f;
-						if( signf(search_val) != signf(val_1) ){
-							for( i = 0; i < 10; i++){
-								interp_v2_v2v2( uv_P, edge1_mid, cent_uv, step);
-								openSubdiv_evaluateLimit(m_d->eval, face_index, uv_P[0], uv_P[1], P, du, dv);
-
-								sub_v3_v3v3(temp, P, co_arr[CC_idx]);
-								search_val = dot_v3v3(rad_plane_no, temp);
-
-								if( fabs(search_val) < 1e-14 ){
-									//We got lucky and found the zero crossing!
-									printf("got lucky\n");
-									break;
-								}
-
-								if( signf(search_val) == signf(val_1) ){
-									step += step_len;
-								} else {
-									step -= step_len;
-								}
-								step_len = step_len/2.0f;
-							}
-						} else {
-							for( i = 0; i < 10; i++){
-								interp_v2_v2v2( uv_P, edge2_mid, cent_uv, step);
-								openSubdiv_evaluateLimit(m_d->eval, face_index, uv_P[0], uv_P[1], P, du, dv);
-
-								sub_v3_v3v3(temp, P, co_arr[CC_idx]);
-								search_val = dot_v3v3(rad_plane_no, temp);
-
-								if( fabs(search_val) < 1e-14 ){
-									//We got lucky and found the zero crossing!
-									printf("got lucky\n");
-									break;
-								}
-
-								if( signf(search_val) == signf(val_2) ){
-									step += step_len;
-								} else {
-									step -= step_len;
-								}
-								step_len = step_len/2.0f;
-							}
-						}
-
-						{
-							Vert_buf v_buf;
-							Radi_vert r_vert;
-							v_buf.orig_edge = NULL;
-							v_buf.orig_face = orig_face;
-							v_buf.u = cent_uv[0];
-							v_buf.v = cent_uv[1];
-							if( poke_and_move(f, P, du, dv, &r_vert, m_d) ){
-								BMVert *b_vert;
-								bool is_B;
-
-								if( mod_i(CC_idx+1,3) == CC2_idx ){
-									b_vert = vert_arr[ mod_i(CC_idx-1,3) ];
-								} else {
-									b_vert = vert_arr[ mod_i(CC_idx+1,3) ];
-								}
-
-								copy_v3_v3(r_vert.radi_plane_no, rad_plane_no);
-								copy_v3_v3(r_vert.c_pos, co_arr[CC_idx]);
-								is_B = calc_if_B_nor(m_d->cam_loc, b_vert->co, b_vert->no);
-
-								r_vert.extendable = true;
-								r_vert.is_B = is_B;
-
-								BLI_buffer_append(m_d->radi_vert_buffer, Radi_vert, r_vert);
-								BLI_buffer_append(m_d->new_vert_buffer, Vert_buf, v_buf);
-							}
-						}
-
-					}
-				}
 			}
 		}
 	}
