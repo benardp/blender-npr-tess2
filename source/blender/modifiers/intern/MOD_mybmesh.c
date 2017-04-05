@@ -2114,7 +2114,10 @@ static void mult_radi_search( BLI_Buffer *diff_f, const float cent[3], const flo
 				bool e2 = false;
 				bool f_cent = false;
 
-				axis_dominant_v3_to_m3(mat, vert->no);
+                float normal[3];
+
+				BM_face_calc_normal(f, normal);
+				axis_dominant_v3_to_m3(mat, normal);
 
 				BM_ITER_ELEM (face, &iter_f, vert, BM_FACES_OF_VERT) {
 					if( point_inside(mat, edge1_mid, face) ){
@@ -2761,7 +2764,13 @@ static int radial_extention( MeshData *m_d ){
 					}
 
 					//Check so we don't try to flip any contour/radial edges
-					if( !radial_C_vert(edge->v1, m_d) || !radial_C_vert(edge->v2, m_d)){
+					//There has to be at least one C vert for it to be a true radial edge
+					BLI_Buffer *cv;
+					cv = m_d->C_verts;
+					BMLoop *l1, *l2;
+					BM_edge_calc_rotate(edge, true, &l1, &l2);
+					if( !is_C_vert(edge->v1, cv) && !is_C_vert(edge->v2, cv) &&
+						!is_C_vert(l1->v, cv) && !is_C_vert(l2->v, cv)){
 						float lambda;
 						float temp[3];
 						sub_v3_v3v3(temp, edge->v2->co, edge->v1->co);
@@ -2874,7 +2883,7 @@ static int radial_extention( MeshData *m_d ){
 
 			if(found_better_pos){
 				copy_v3_v3(r_vert.vert->co, best_pos);
-                //Make sure we hace up to date face normals
+                //Make sure we have up to date face normals
 				BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
 					BM_face_normal_update(face);
 				}
@@ -2885,7 +2894,7 @@ static int radial_extention( MeshData *m_d ){
 			//Move back to original position and flip back edge
 			copy_v3_v3( r_vert.vert->co, old_pos );
 
-			//Make sure we hace up to date face normals
+			//Make sure we have up to date face normals
 			BM_ITER_ELEM (face, &iter, r_vert.vert, BM_FACES_OF_VERT) {
 				BM_face_normal_update(face);
 			}
@@ -2959,7 +2968,7 @@ static void optimization( MeshData *m_d ){
 						continue;
 					}
 
-					{
+					/*{
 						// This shouldn't be needed, but in case we manage to have inconsistent
 						// faces that borders our contour line, don't mark it for adjustment.
 						BMVert *v;
@@ -2977,7 +2986,7 @@ static void optimization( MeshData *m_d ){
 							continue;
 						}
 
-					}
+					}*/
 					BM_face_calc_center_mean(face, P);
 
 					if( b_f != calc_if_B_nor(m_d->cam_loc, P, face->no) ){
@@ -3015,10 +3024,13 @@ static void optimization( MeshData *m_d ){
 					continue;
 				}
 
-				if( BM_elem_index_get(edge->v1) < m_d->radi_start_idx || BM_elem_index_get(edge->v2) < m_d->radi_start_idx ){
+				BLI_Buffer *cv;
+				cv = m_d->C_verts;
+				BMLoop *l1, *l2;
+				BM_edge_calc_rotate(edge, true, &l1, &l2);
+				if( !is_C_vert(edge->v1, cv) && !is_C_vert(edge->v2, cv) &&
+					!is_C_vert(l1->v, cv) && !is_C_vert(l2->v, cv)){
 					//This is not a radial triangle edge, see if we can flip it
-					BMLoop *l1, *l2;
-					BM_edge_calc_rotate(edge, true, &l1, &l2);
 
 					if( !BM_edge_rotate_check_degenerate(edge, l1, l2) ){
 						continue;
