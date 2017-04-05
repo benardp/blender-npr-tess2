@@ -2763,6 +2763,9 @@ static int radial_extention( MeshData *m_d ){
 						continue;
 					}
 
+					if( !BM_edge_rotate_check(edge) ){
+						continue;
+					}
 					//Check so we don't try to flip any contour/radial edges
 					//There has to be at least one C vert for it to be a true radial edge
 					BLI_Buffer *cv;
@@ -2789,7 +2792,7 @@ static int radial_extention( MeshData *m_d ){
 			continue;
 		}
 
-		if( flip_edge != NULL && BM_edge_rotate_check(flip_edge) ){
+		if( flip_edge != NULL ){
 			BMLoop *loop1, *loop2;
 			BM_edge_calc_rotate(flip_edge, true, &loop1, &loop2);
 			if( BM_edge_rotate_check_degenerate(flip_edge, loop1, loop2) ){
