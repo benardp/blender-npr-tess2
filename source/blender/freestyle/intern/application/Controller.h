@@ -123,6 +123,8 @@ public:
 	bool getComputeSuggestiveContoursFlag() const;
 	void setComputeMaterialBoundariesFlag(bool b);
 	bool getComputeMaterialBoundariesFlag() const;
+    void setComputeSurfaceIntersectionsFlag(bool b);
+    bool getComputeSurfaceIntersectionsFlag() const;
 
 	void setComputeSteerableViewMapFlag(bool iBool);
 	bool getComputeSteerableViewMapFlag() const;
@@ -132,6 +134,9 @@ public:
 	float getSphereRadius() const {return _sphereRadius;}
 	void setSuggestiveContourKrDerivativeEpsilon(float dkr) {_suggestiveContourKrDerivativeEpsilon = dkr;}
 	float getSuggestiveContourKrDerivativeEpsilon() const {return _suggestiveContourKrDerivativeEpsilon;}
+
+    void setUseConsistency(bool iBool) { _useConsistency = iBool; }
+    bool getUseConsistency() const { return _useConsistency; }
 
 	void setModelsDir(const string& dir);
 	string getModelsDir() const;
@@ -235,6 +240,8 @@ private:
 	bool _ComputeRidges;
 	bool _ComputeSuggestive;
 	bool _ComputeMaterialBoundaries;
+    bool _ComputeSurfaceIntersections;
+    bool _useConsistency;
 	float _creaseAngle;
 	float _sphereRadius;
 	float _suggestiveContourKrDerivativeEpsilon;

@@ -52,6 +52,8 @@ enum {
 	FREESTYLE_ADVANCED_OPTIONS_FLAG     = 1 << 4,
 	FREESTYLE_CULLING                   = 1 << 5,
 	FREESTYLE_VIEW_MAP_CACHE            = 1 << 6,
+    FREESTYLE_USE_CONSISTENCY           = 1 << 7,
+    FREESTYLE_SURFACE_INTERSECTIONS_FLAG   = 1 << 8,
 };
 
 /* FreestyleConfig::mode */
@@ -87,6 +89,7 @@ enum {
 	FREESTYLE_FE_CREASE                 = 1 << 2,
 	FREESTYLE_FE_RIDGE_VALLEY           = 1 << 3,
 	/* FREESTYLE_FE_VALLEY              = 1 << 4, */  /* No longer used */
+    FREESTYLE_FE_SURFACE_INTERSECTION      = 1 << 4,
 	FREESTYLE_FE_SUGGESTIVE_CONTOUR     = 1 << 5,
 	FREESTYLE_FE_MATERIAL_BOUNDARY      = 1 << 6,
 	FREESTYLE_FE_CONTOUR                = 1 << 7,

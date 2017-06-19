@@ -565,6 +565,7 @@ set(INC
 	../render/extern/include
 	../render/intern/include
 	../../../extern/glew/include
+        ../../../extern/carve/include
 	../../../intern/guardedalloc
 )
 

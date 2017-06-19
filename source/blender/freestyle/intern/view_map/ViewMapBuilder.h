@@ -74,6 +74,10 @@ private:
 	bool _EnableQI;
 	double _epsilon;
 
+    bool _useConsistency;
+    real _cuspTrimThreshold;
+    real _graftThreshold;
+
 	// tmp values:
 	int _currentId;
 	int _currentFId;
@@ -104,6 +108,9 @@ public:
 		_currentSVertexId = 0;
 		_pViewEdgeBuilder = new ViewEdgeXBuilder;
 		_EnableQI = true;
+        _useConsistency = false;
+        _cuspTrimThreshold = 0;
+        _graftThreshold = 0;
 	}
 
 	inline ~ViewMapBuilder()
@@ -185,6 +192,10 @@ public:
 	void ComputeEdgesVisibility(ViewMap *ioViewMap, WingedEdge& we, const BBox<Vec3r>& bbox, unsigned int sceneNumFaces,
 	                            visibility_algo iAlgo = ray_casting, real epsilon = 1.0e-6);
 
+    void PropagateVisibilty(ViewMap *ioViewMap);
+
+    void CheckVisibilityCoherency(ViewMap *ioViewMap);
+
 	void setGrid(Grid *iGrid)
 	{
 		_Grid = iGrid;
@@ -207,6 +218,21 @@ public:
 	{
 		_EnableQI = iBool;
 	}
+
+    void setUseConsistency(bool iBool)
+    {
+        _useConsistency = iBool;
+    }
+
+    void setCuspTrimThreshold(real threshold)
+    {
+        _cuspTrimThreshold = threshold;
+    }
+
+    void setGraftThreshold(real threshold)
+    {
+        _graftThreshold = threshold;
+    }
 
 protected:
 	/*! Computes intersections on all edges of the scene using a sweep line algorithm */
@@ -251,6 +277,9 @@ protected:
 	void FindOccludee(FEdge *fe, Grid *iGrid, real epsilon, Polygon3r **oaPolygon, unsigned timestamp);
 	void FindOccludee(FEdge *fe, Grid *iGrid, real epsilon, Polygon3r **oaPolygon, unsigned timestamp,
 	                  Vec3r& u, Vec3r& A, Vec3r& origin, Vec3r& edge, vector<WVertex*>& faceVertices);
+
+    bool HideSmallBits(ViewMap * ioViewMap);
+    bool HideSmallLoopsAndDeadEnds(ViewMap * vm);
 
 #ifdef WITH_CXX_GUARDEDALLOC
 	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:ViewMapBuilder")

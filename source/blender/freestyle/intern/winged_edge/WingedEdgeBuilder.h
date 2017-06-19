@@ -118,7 +118,7 @@ public:
 
 protected:
 	virtual bool buildWShape(WShape& shape, IndexedFaceSet& ifs);
-	virtual void buildWVertices(WShape& shape, const float *vertices, unsigned vsize);
+    virtual void buildWVertices(WShape& shape, const float *vertices, const float *normals, unsigned vsize);
 
 	RenderMonitor *_pRenderMonitor;
 

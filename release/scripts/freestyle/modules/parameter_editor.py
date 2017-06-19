@@ -1226,6 +1226,9 @@ def process(layer_name, lineset_name):
         if lineset.select_material_boundary:
             upred = pyNatureUP1D(Nature.MATERIAL_BOUNDARY)
             edge_type_criteria.append(NotUP1D(upred) if lineset.exclude_material_boundary else upred)
+        if lineset.select_surface_intersection:
+            upred = pyNatureUP1D(Nature.SURFACE_INTERSECTION)
+            edge_type_criteria.append(NotUP1D(upred) if lineset.exclude_surface_intersection else upred)
         if lineset.select_edge_mark:
             upred = pyNatureUP1D(Nature.EDGE_MARK)
             edge_type_criteria.append(NotUP1D(upred) if lineset.exclude_edge_mark else upred)

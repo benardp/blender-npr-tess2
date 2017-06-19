@@ -132,7 +132,7 @@ bool WingedEdgeBuilder::buildWShape(WShape& shape, IndexedFaceSet& ifs)
 	_current_wshape = &shape;
 
 	// create a WVertex for each vertex
-	buildWVertices(shape, new_vertices, vsize);
+    buildWVertices(shape, new_vertices, new_normals, vsize);
 
 	const unsigned int *vindices = ifs.vindices();
 	const unsigned int *nindices = ifs.nindices();
@@ -213,12 +213,13 @@ bool WingedEdgeBuilder::buildWShape(WShape& shape, IndexedFaceSet& ifs)
 	return true;
 }
 
-void WingedEdgeBuilder::buildWVertices(WShape& shape, const float *vertices, unsigned vsize)
+void WingedEdgeBuilder::buildWVertices(WShape& shape, const float *vertices, const float *normals, unsigned vsize)
 {
 	WVertex *vertex;
 	for (unsigned int i = 0; i < vsize; i += 3) {
 		vertex = new WVertex(Vec3f(vertices[i], vertices[i + 1], vertices[i + 2]));
 		vertex->setId(i / 3);
+        vertex->setNormal(Vec3f(normals[i], normals[i + 1], normals[i + 2]));
 		shape.AddVertex(vertex);
 	}
 }

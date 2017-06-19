@@ -85,7 +85,7 @@ private:
 	BBox<Vec3r> _scene3DBBox;
 	// Mapping between the WShape or VShape id to the VShape index in the _VShapes vector. Used in the method
 	// viewShape(int id) to access a shape from its id.
-	id_to_index_map _shapeIdToIndex;
+    id_to_index_map _shapeIdToIndex;
 
 public:
 	/*! A field that can be used by the user to store any data.
@@ -97,7 +97,7 @@ public:
 	ViewMap()
 	{
 		_pInstance = this;
-		userdata = NULL;
+        userdata = NULL;
 	}
 
 	/*! Destructor. */
@@ -232,6 +232,8 @@ public:
 	 *      The new ViewEdges that must be add to the ViewMap
 	 */
 	ViewVertex *InsertViewVertex(SVertex *iVertex, vector<ViewEdge*>& newViewEdges);
+
+    void RemoveVertex(ViewVertex * iViewVertex);
 
 	/* connects a FEdge to the graph trough a SVertex */
 	//FEdge *Connect(FEdge *ioEdge, SVertex *ioVertex);
@@ -479,6 +481,8 @@ private:
 	Id _Id; // id to identify t vertices . these id will be negative in order not to be mixed with NonTVertex ids.
 	edge_pointers_container _sortedEdges; // the list of the four ViewEdges, ordered in CCW order (in the image plan)
 
+    bool _sameFace;  // do these two curves intersect on the 3D surface, and not just in the 2D projection?
+
 public:
 	/*! Default constructor.*/
 	inline TVertex() : ViewVertex(Nature::T_VERTEX)
@@ -557,6 +561,11 @@ public:
 		return _BackEdgeB;
 	}
 
+    inline bool sameFace()
+    {
+        return _sameFace;
+    }
+
 	/* modifiers */
 	/*! Sets the SVertex that is closer to the viewpoint. */
 	inline void setFrontSVertex(SVertex *iFrontSVertex)
@@ -576,6 +585,11 @@ public:
 	void setFrontEdgeB(ViewEdge *iFrontEdgeB, bool incoming = true);
 	void setBackEdgeA(ViewEdge *iBackEdgeA, bool incoming = true);
 	void setBackEdgeB(ViewEdge *iBackEdgeB, bool incoming = true);
+
+    inline void setSameFace(bool sf)
+    {
+        _sameFace = sf;
+    }
 
 	/*! Sets the Id. */
 	inline void setId(const Id& iId)
@@ -640,6 +654,16 @@ public:
 
 	/*! Returns an orientedViewEdgeIterator pointing to the ViewEdge given as argument. */
 	virtual ViewVertexInternal::orientedViewEdgeIterator edgesIterator(ViewEdge *iEdge);
+
+    inline int numEdges() const
+    {
+        return _sortedEdges.size();
+    }
+
+    inline directedViewEdge * getEdge(int i)
+    {
+        return _sortedEdges[i];
+    }
 
 #ifdef WITH_CXX_GUARDEDALLOC
 	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:TVertex")
@@ -946,6 +970,10 @@ private:
 	// tmp
 	Id *_splittingId;
 
+    bool _inconsistentVisibility;  // did ray tests mark some points visible and some invisible?
+    bool _ambiguousVisibility;
+    bool _wasAmbiguous;
+
 public:
 	/*! A field that can be used by the user to store any data.
 	 *  This field must be reseted afterwards using ResetUserData().
@@ -965,6 +993,9 @@ public:
 		userdata = NULL;
 		_splittingId = NULL;
 		_isInImage = true;
+        _inconsistentVisibility = false;
+        _ambiguousVisibility = false;
+        _wasAmbiguous = false;
 	}
 
 	inline ViewEdge(ViewVertex *iA, ViewVertex *iB)
@@ -980,6 +1011,9 @@ public:
 		userdata = NULL;
 		_splittingId = NULL;
 		_isInImage = true;
+        _inconsistentVisibility = false;
+        _ambiguousVisibility = false;
+        _wasAmbiguous = false;
 	}
 
 	inline ViewEdge(ViewVertex *iA, ViewVertex *iB, FEdge *iFEdgeA)
@@ -995,6 +1029,9 @@ public:
 		userdata = NULL;
 		_splittingId = NULL;
 		_isInImage = true;
+        _inconsistentVisibility = false;
+        _ambiguousVisibility = false;
+        _wasAmbiguous = false;
 	}
 
 	inline ViewEdge(ViewVertex *iA, ViewVertex *iB, FEdge *iFEdgeA, FEdge *iFEdgeB, ViewShape *iShape)
@@ -1010,6 +1047,9 @@ public:
 		userdata = NULL;
 		_splittingId = NULL;
 		_isInImage = true;
+        _inconsistentVisibility = false;
+        _ambiguousVisibility = false;
+        _wasAmbiguous = false;
 		UpdateFEdges(); // tells every FEdge between iFEdgeA and iFEdgeB that this is theit ViewEdge
 	}
 
@@ -1030,6 +1070,9 @@ public:
 		_splittingId = NULL;
 		_isInImage = iBrother._isInImage;
 		iBrother.userdata = this;
+        _inconsistentVisibility = iBrother._inconsistentVisibility;
+        _ambiguousVisibility = iBrother._ambiguousVisibility;
+        _wasAmbiguous = iBrother._wasAmbiguous;
 		userdata = NULL;
 	}
 
@@ -1215,6 +1258,23 @@ public:
 		_isInImage = iFlag;
 	}
 
+    inline void markInconsistent(bool v = true)
+    {
+        _inconsistentVisibility = v;
+    }
+
+    inline void markAmbiguous(bool v = true)
+    {
+        _ambiguousVisibility = v;
+        _wasAmbiguous = v;
+    }
+
+    inline void fixAmbiguous()
+    {
+        _ambiguousVisibility = false;
+    }
+
+
 	/* stroke interface definition */
 	inline bool intersect_2d_area(const Vec2r& iMin, const Vec2r& iMax) const
 	{
@@ -1331,6 +1391,21 @@ public:
 	{
 		return _FEdgeA->shape_importance();
 	}
+
+    inline bool inconsistentVisibility() const
+    {
+        return _inconsistentVisibility;
+    }
+
+    inline bool ambiguousVisibility() const
+    {
+        return _ambiguousVisibility;
+    }
+
+    inline bool wasAmbiguous() const
+    {
+        return _wasAmbiguous;
+    }
 
 	/* iterators access */
 	// view edge iterator
@@ -1533,6 +1608,10 @@ public:
 	 */
 	inline void SplitEdge(FEdge *fe, const vector<TVertex*>& iViewVertices, vector<FEdge*>& ioNewEdges,
 	                      vector<ViewEdge*>& ioNewViewEdges);
+
+    /* based on the above SplitEdge procedures, but it's much simpler since we're splitting at an existing vertex,
+     * and no new FEdges are being created. */
+    inline void SplitEdge(ViewVertex * newVertex, ViewEdge * vEdge, ViewEdge * & newVEdge, bool isFront);
 
 	/* accessors */
 	/*! Returns the SShape on top of which this ViewShape is built. */
@@ -1742,6 +1821,143 @@ void ViewShape::SplitEdge(FEdge *fe, const vector<TVertex*>& iViewVertices, vect
 		}
 	}
 }
+
+void ViewShape::SplitEdge(ViewVertex * newVertex, ViewEdge * vEdge, ViewEdge * & newVEdge, bool isFront)
+{
+    TVertex * tvert = dynamic_cast<TVertex*>(newVertex);
+    NonTVertex * ntv = dynamic_cast<NonTVertex*>(newVertex);
+
+    SVertex * sv;
+
+    if (tvert != NULL)
+        sv = (isFront ? tvert->frontSVertex() : tvert->backSVertex());
+    else
+        sv = ntv->svertex();
+
+    ViewVertex * vva = vEdge->A();
+    ViewVertex * vvb = vEdge->B();
+
+    // check if this view edge is a closed loop
+    if (vva == NULL || vvb == NULL)
+    {
+        // viewedge is a loop
+        AddVertex(newVertex);
+
+        vEdge->fedgeA()->shape()->RemoveEdgeFromChain(vEdge->fedgeA());
+        vEdge->setA(newVertex);
+        vEdge->setB(newVertex);
+
+        FEdge * f1 = sv->fedges()[0];
+        FEdge * f2 = sv->fedges()[1];
+
+        newVEdge = vEdge;
+
+        if (f1->vertexB() == sv)
+        {
+            vEdge->setFEdgeA( f2 );
+            vEdge->setFEdgeB ( f1 );
+
+            f1->setNextEdge(NULL);
+            f2->setPreviousEdge(NULL);
+        }
+        else
+        {
+            vEdge->setFEdgeA( f1);
+            vEdge->setFEdgeB( f2);
+
+            f2->setNextEdge(NULL);
+            f1->setPreviousEdge(NULL);
+        }
+
+        if (ntv != NULL)
+        {
+            ntv->AddIncomingViewEdge(newVEdge);
+            ntv->AddOutgoingViewEdge(newVEdge);
+        }
+        else
+        {
+            if (isFront)
+            {
+                tvert->setFrontEdgeA(newVEdge);
+                tvert->setFrontEdgeB(newVEdge);
+            }
+            else
+            {
+                tvert->setBackEdgeA(newVEdge);
+                tvert->setBackEdgeB(newVEdge);
+            }
+        }
+
+        return;
+    }
+
+    newVEdge = new ViewEdge( newVertex, vvb); // connect the new vertex to vvb
+    newVEdge->setNature(vEdge->getNature());
+    newVEdge->setFEdgeB( vEdge->fedgeB() );
+    AddEdge(newVEdge);
+
+    newVEdge->setA(newVertex);
+    newVEdge->setB(vvb);
+
+    FEdge * f1 = sv->fedges()[0];
+    FEdge * f2 = sv->fedges()[1];
+
+    if (f1->vertexB() == sv)
+    {
+        vEdge->setFEdgeB ( f1 );
+        newVEdge->setFEdgeA( f2 );
+
+        f1->setNextEdge(NULL);
+        f2->setPreviousEdge(NULL);
+
+        sv->shape()->AddChain(f2);
+    }
+    else
+    {
+        vEdge->setFEdgeB( f2);
+        newVEdge->setFEdgeA( f1);
+
+        f2->setNextEdge(NULL);
+        f1->setPreviousEdge(NULL);
+
+        sv->shape()->AddChain(f1);
+    }
+
+    vvb->Replace(vEdge, newVEdge);
+
+    vEdge->setB(newVertex);  // has to happen after Replace because of Replace's test for B
+
+    Id * newId = vEdge->splittingId();
+    if (newId == NULL)
+    {
+        newId = new Id(vEdge->getId());
+        vEdge->setSplittingId(newId);
+    }
+
+    // Update fedges so that they point to the new viewedge
+    newVEdge->UpdateFEdges();
+
+    // point from the new vertex to the new view edges
+    if (ntv != NULL)
+    {
+        ntv->AddIncomingViewEdge(vEdge);
+        ntv->AddOutgoingViewEdge(newVEdge);
+    }
+    else
+    {
+        if (isFront)
+        {
+            tvert->setFrontEdgeA(vEdge, true);
+            tvert->setFrontEdgeB(newVEdge, false);
+        }
+        else
+        {
+            tvert->setBackEdgeA(vEdge, true);
+            tvert->setBackEdgeB(newVEdge, false);
+        }
+    }
+}
+
 
 /**********************************/
 /*                                */

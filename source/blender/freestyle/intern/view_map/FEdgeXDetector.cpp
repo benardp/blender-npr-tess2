@@ -53,6 +53,9 @@ void FEdgeXDetector::processShapes(WingedEdge& we)
 		progressBarDisplay = true;
 	}
 
+        if (_computeSurfaceIntersections)
+                processSurfaceIntersectionShape(wshapes);
+
 	for (vector<WShape*>::const_iterator it = wshapes.begin(); it != wshapes.end(); it++) {
 		if (_pRenderMonitor && _pRenderMonitor->testBreak())
 			break;
@@ -305,6 +308,9 @@ void FEdgeXDetector::ProcessSilhouetteFace(WXFace *iFace)
 		if (dist < minDist) {
 			minDist = dist;
 			closestPointId = i;
+
+            // store ndotv at the vertex for use in the region-based visibility
+            ((WXVertex*)iFace->GetVertex(i))->setNdotV(d);
 		}
 	}
 	// Set the closest point id:
@@ -322,7 +328,7 @@ void FEdgeXDetector::ProcessSilhouetteEdge(WXEdge *iEdge)
 	WXFace *fA = (WXFace *)iEdge->GetaOEdge()->GetaFace();
 	WXFace *fB = (WXFace *)iEdge->GetaOEdge()->GetbFace();
 
-	if ((fA->front()) ^ (fB->front())) { // fA->visible XOR fB->visible (true if one is 0 and the other is 1)
+        if((fA->front(_useConsistency))^(fB->front(_useConsistency))){  // fA->visible XOR fB->visible (true if one is 0 and the other is 1)
 		// The only edges we want to set as silhouette edges in this way are the ones with 2 different normals
 		// for 1 vertex for these two faces
 		//--------------------
@@ -330,7 +336,7 @@ void FEdgeXDetector::ProcessSilhouetteEdge(WXEdge *iEdge)
 		if (fA->GetVertexNormal(iEdge->GetaVertex()) == fB->GetVertexNormal(iEdge->GetaVertex()))
 			return;
 		iEdge->AddNature(Nature::SILHOUETTE);
-		if (fB->front())
+                if (fB->front(_useConsistency))
 			iEdge->setOrder(1);
 		else
 			iEdge->setOrder(-1);
@@ -712,6 +718,134 @@ void FEdgeXDetector::ProcessMaterialBoundaryEdge(WXEdge *iEdge)
 	if (aFace && bFace && aFace->frs_materialIndex() != bFace->frs_materialIndex()) {
 		iEdge->AddNature(Nature::MATERIAL_BOUNDARY);
 	}
+}
+
+// SURFACE_INTERSECTIONS
+////////////////////
+void FEdgeXDetector::processSurfaceIntersectionShape(const vector<Freestyle::WShape *> &shapes)
+{
+    vector<WFace*> wfaces;
+    for (vector<WShape*>::const_iterator it = shapes.begin(); it != shapes.end(); it++) {
+        for (vector<WFace *>::const_iterator itf = (*it)->GetFaceList().begin(); itf != (*it)->GetFaceList().end(); itf++) {
+            wfaces.push_back(*itf);
+        }
+    }
+    // Naive implementation checking all face pairs
+    vector<WFace*>::iterator f1, f2, fend;
+    for (f1 = wfaces.begin(), fend = wfaces.end(); f1 != fend; ++f1) {
+        for (f2 = (f1+1); f2 != fend; ++f2) {
+            processSurfaceIntersectionFaces((WXFace *)(*f1),(WXFace *)(*f2));
+        }
+    }
+}
+
+bool shareVertex(WXFace * face1, WXFace * face2)
+{
+    for(int m=0;m<3;m++)
+        for(int n=0;n<3;n++)
+        {
+            WVertex * v1 = face1->GetVertex(m);
+            WVertex * v2 = face2->GetVertex(n);
+
+            if (v1 == v2)
+                return true;
+        }
+    return false;
+}
+
+bool adjacent(WXFace * face1, WXFace * face2)
+{
+    if (shareVertex(face1,face2))
+        return true;
+
+    return false;
+}
+
+void FEdgeXDetector::processSurfaceIntersectionFaces(WXFace *iFace1, WXFace *iFace2)
+{
+    if((iFace1 == iFace2) || adjacent(iFace1, iFace2))
+        return;
+
+    WXFaceLayer *faceLayer = new WXFaceLayer(iFace1, Nature::SURFACE_INTERSECTION, false);
+    iFace1->AddSmoothLayer(faceLayer);
+
+    int coplanar = 0;
+    real t1[3][3], t2[3][3];
+    for(int m=0;m<3;m++) {
+        for(int n=0;n<3;n++) {
+            t1[m][n] = iFace1->GetVertex(m)->GetVertex()[n];
+            t2[m][n] = iFace2->GetVertex(m)->GetVertex()[n];
+        }
+    }
+
+    real source[3], target[3];
+    int result = GeomUtils::tri_tri_intersection_test_3d(t1[0], t1[1], t1[2], t2[0], t2[1], t2[2], &coplanar, source, target);
+
+    // No intersection
+    if (result == 0)
+        return;
+
+    if (coplanar == 1)
+    {
+        printf("WARNING: Ignoring coplanar triangles\n");
+        return;
+    }
+    if (isinf(source[0]) || isinf(source[1]) || isinf(source[2]) ||
+            isinf(target[0]) || isinf(target[1]) || isinf(target[2]))
+    {
+        printf("WARNING: Ignoring INF in triangle-triangle intersection\n");
+        return;
+    }
+    if (isnan(source[0]) || isnan(source[1]) || isnan(source[2]) ||
+            isnan(target[0]) || isnan(target[1]) || isnan(target[2]))
+    {
+        printf("WARNING: Ignoring NaN in triangle-triangle intersection\n");
+        return;
+    }
+
+    Vec3r src(source[0], source[1], source[2]);
+    Vec3r tgt(target[0], target[1], target[2]);
+
+    // ---------- figure out which intersection goes with which face edge -----
+
+    real min_distA = DBL_MAX, min_distB = DBL_MAX;
+    int edgeNumA, edgeNumB;
+
+    for(int e=0;e<3;e++) {
+        WOEdge * oedge = iFace1->GetOEdge(e);
+
+        Vec3f v1 = oedge->GetaVertex()->GetVertex();
+        Vec3f v2 = oedge->GetbVertex()->GetVertex();
+
+        real distA = GeomUtils::distPointSegment<Vec3r>(src, v1, v2);
+
+        if (distA < min_distA)
+        {
+            min_distA = distA;
+            edgeNumA = e;
+        }
+
+        real distB = GeomUtils::distPointSegment<Vec3r>(tgt, v1, v2);
+
+        if (distB < min_distB)
+        {
+            min_distB = distB;
+            edgeNumB = e;
+        }
+    }
+
+    WOEdge *woea = iFace1->GetOEdge(edgeNumA);
+    WOEdge *woeb = iFace1->GetOEdge(edgeNumB);
+    float ta = (src - woea->GetaVertex()->GetVertex()).norm() / (woea->GetbVertex()->GetVertex() - woea->GetaVertex()->GetVertex()).norm();
+    float tb = (tgt - woeb->GetaVertex()->GetVertex()).norm() / (woeb->GetbVertex()->GetVertex() - woeb->GetaVertex()->GetVertex()).norm();
+
+    WXSmoothEdge* sEdge = new WXSmoothEdge();
+    sEdge->setWOeA(woea);
+    sEdge->setWOeB(woeb);
+    sEdge->setTa(ta);
+    sEdge->setTb(tb);
+    faceLayer->setSmoothEdge(sEdge);
+
 }
 
 // EDGE MARKS

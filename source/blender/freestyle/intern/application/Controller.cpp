@@ -116,8 +116,8 @@ Controller::Controller()
 
 	_Canvas = 0;
 
-	_VisibilityAlgo = ViewMapBuilder::ray_casting_adaptive_traditional;
-	//_VisibilityAlgo = ViewMapBuilder::ray_casting;
+    _VisibilityAlgo = ViewMapBuilder::ray_casting_adaptive_traditional;
+    //_VisibilityAlgo = ViewMapBuilder::ray_casting;
 
 	_Canvas = new AppCanvas;
 
@@ -129,6 +129,8 @@ Controller::Controller()
 	_ComputeSteerableViewMap = false;
 	_ComputeSuggestive = true;
 	_ComputeMaterialBoundaries = true;
+    _ComputeSurfaceIntersections = true;
+    _useConsistency = false;
 	_sphereRadius = 1.0;
 	_creaseAngle = 134.43;
 	prevSceneHash = -1.0;
@@ -546,11 +548,13 @@ void Controller::ComputeViewMap()
 	edgeDetector.enableRidgesAndValleysFlag(_ComputeRidges);
 	edgeDetector.enableSuggestiveContours(_ComputeSuggestive);
 	edgeDetector.enableMaterialBoundaries(_ComputeMaterialBoundaries);
+    edgeDetector.enableSurfaceIntersections(_ComputeSurfaceIntersections);
 	edgeDetector.enableFaceSmoothness(_EnableFaceSmoothness);
 	edgeDetector.setCreaseAngle(_creaseAngle);
 	edgeDetector.setSphereRadius(_sphereRadius);
 	edgeDetector.setSuggestiveContourKrDerivativeEpsilon(_suggestiveContourKrDerivativeEpsilon);
 	edgeDetector.setRenderMonitor(_pRenderMonitor);
+    edgeDetector.setUseConsistency(_useConsistency);
 	edgeDetector.processShapes(*_winged_edge);
 
 	real duration = _Chrono.stop();
@@ -569,6 +573,7 @@ void Controller::ComputeViewMap()
 	vmBuilder.setTransform(mv, proj, viewport, _pView->GetFocalLength(), _pView->GetAspect(), _pView->GetFovyRadian());
 	vmBuilder.setFrustum(_pView->znear(), _pView->zfar());
 	vmBuilder.setGrid(&_Grid);
+    vmBuilder.setUseConsistency(_useConsistency);
 	vmBuilder.setRenderMonitor(_pRenderMonitor);
 
 #if 0
@@ -585,7 +590,7 @@ void Controller::ComputeViewMap()
 	}
 	_Chrono.start();
 	// Build View Map
-	_ViewMap = vmBuilder.BuildViewMap(*_winged_edge, _VisibilityAlgo, _EPSILON, _Scene3dBBox, _SceneNumFaces);
+    _ViewMap = vmBuilder.BuildViewMap(*_winged_edge, ViewMapBuilder::ray_casting, _EPSILON, _Scene3dBBox, _SceneNumFaces);
 	_ViewMap->setScene3dBBox(_Scene3dBBox);
 
 	if (G.debug & G_DEBUG_FREESTYLE) {
@@ -852,6 +857,16 @@ void Controller::setComputeMaterialBoundariesFlag(bool b)
 bool Controller::getComputeMaterialBoundariesFlag() const
 {
 	return _ComputeMaterialBoundaries;
+}
+
+void Controller::setComputeSurfaceIntersectionsFlag(bool b)
+{
+    _ComputeSurfaceIntersections = b;
+}
+
+bool Controller::getComputeSurfaceIntersectionsFlag() const
+{
+    return _ComputeSurfaceIntersections;
 }
 
 void Controller::setComputeSteerableViewMapFlag(bool iBool)

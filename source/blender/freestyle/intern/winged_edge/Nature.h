@@ -49,6 +49,8 @@ static const VertexNature NON_T_VERTEX = (1 << 2); // 4
 static const VertexNature T_VERTEX     = (1 << 3); // 8
 /*! true for CUSP */
 static const VertexNature CUSP         = (1 << 4); // 16
+/*! true for AMBIGUOUS CUSP */
+static const VertexNature AMBIG_CUSP   = (1 << 5); // 32
 
 typedef unsigned short EdgeNature;
 /*! true for non feature edges (always false for 1D elements of the ViewMap) */
@@ -69,6 +71,8 @@ static const EdgeNature SUGGESTIVE_CONTOUR = (1 << 5); // 32
 static const EdgeNature MATERIAL_BOUNDARY  = (1 << 6); // 64
 /*! true for user-defined edge marks */
 static const EdgeNature EDGE_MARK          = (1 << 7); // 128
+/*! true for surface intersections */
+static const EdgeNature SURFACE_INTERSECTION  = (1 << 8); // 256
 
 } // end of namespace Nature
 

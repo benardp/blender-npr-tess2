@@ -209,6 +209,10 @@ static PyLongObject _Nature_EDGE_MARK = {
 	PyVarObject_HEAD_INIT(&Nature_Type, 1)
 	{ Nature::EDGE_MARK }
 };
+static PyLongObject _Nature_SURFACE_INTERSECTION = {
+    PyVarObject_HEAD_INIT(&Nature_Type, 1)
+    { Nature::SURFACE_INTERSECTION }
+};
 
 #define BPy_Nature_POINT               ((PyObject *)&_Nature_POINT)
 #define BPy_Nature_S_VERTEX            ((PyObject *)&_Nature_S_VERTEX)
@@ -225,6 +229,7 @@ static PyLongObject _Nature_EDGE_MARK = {
 #define BPy_Nature_SUGGESTIVE_CONTOUR  ((PyObject *)&_Nature_SUGGESTIVE_CONTOUR)
 #define BPy_Nature_MATERIAL_BOUNDARY   ((PyObject *)&_Nature_MATERIAL_BOUNDARY)
 #define BPy_Nature_EDGE_MARK           ((PyObject *)&_Nature_EDGE_MARK)
+#define BPy_Nature_SURFACE_INTERSECTION ((PyObject *)&_Nature_SURFACE_INTERSECTION)
 
 //-------------------MODULE INITIALIZATION--------------------------------
 int Nature_Init(PyObject *module)
@@ -255,6 +260,7 @@ int Nature_Init(PyObject *module)
 	PyDict_SetItemString(Nature_Type.tp_dict, "SUGGESTIVE_CONTOUR", BPy_Nature_SUGGESTIVE_CONTOUR);
 	PyDict_SetItemString(Nature_Type.tp_dict, "MATERIAL_BOUNDARY", BPy_Nature_MATERIAL_BOUNDARY);
 	PyDict_SetItemString(Nature_Type.tp_dict, "EDGE_MARK", BPy_Nature_EDGE_MARK);
+    PyDict_SetItemString(Nature_Type.tp_dict, "SURFACE_INTERSECTION", BPy_Nature_SURFACE_INTERSECTION);
 
 	return 0;
 }

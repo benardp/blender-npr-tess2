@@ -125,6 +125,7 @@ class RENDERLAYER_PT_freestyle(RenderLayerFreestyleButtonsPanel, Panel):
         row = layout.row()
         layout.prop(freestyle, "mode", text="Control mode")
         layout.prop(freestyle, "use_view_map_cache", text="View Map Cache")
+        layout.prop(freestyle, "use_consistency", text="Consistency")
         layout.label(text="Edge Detection Options:")
 
         split = layout.split()
@@ -242,6 +243,7 @@ class RENDERLAYER_PT_freestyle_lineset(RenderLayerFreestyleEditorButtonsPanel, P
                 self.draw_edge_type_buttons(sub, lineset, "edge_mark")
                 self.draw_edge_type_buttons(sub, lineset, "external_contour")
                 self.draw_edge_type_buttons(sub, lineset, "material_boundary")
+                self.draw_edge_type_buttons(sub, lineset, "surface_intersection")
 
             if lineset.select_by_face_marks:
                 col.label(text="Face Marks:")

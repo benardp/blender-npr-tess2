@@ -169,7 +169,23 @@ TVertex *ViewMap::CreateTVertex(const Vec3r& iA3D, const Vec3r& iA2D, FEdge *iFE
 
 	// and this T Vertex to the view shapes:
 	vshapeA->AddVertex(tvertex);
-	vshapeB->AddVertex(tvertex);
+    if (vshapeA != vshapeB)
+        vshapeB->AddVertex(tvertex);
+
+    // check if the two fedges lie on the same face
+    // that is, the curves intersect on the surface, not just in the 2D projection
+    bool sameFace = false;
+
+    WFace * fA[2] = { iFEdgeA->getFace1(), iFEdgeA->getFace2() };
+    WFace * fB[2] = { iFEdgeB->getFace1(), iFEdgeB->getFace2() };
+
+    for(int i=0;i<2;i++)
+        if (fA[i] != NULL)
+            for(int j=0;j<2;j++)
+                if (fB[j] != NULL && fA[i] == fB[j])
+                    sameFace = true;
+
+    tvertex->setSameFace(sameFace);
 
 	return tvertex;
 }
@@ -756,6 +772,20 @@ void ViewShape::RemoveVertex(ViewVertex *iViewVertex)
 			break;
 		}
 	}
+}
+
+void ViewMap::RemoveVertex(ViewVertex * iViewVertex)
+{
+    for(vector<ViewVertex*>::iterator vv=_VVertices.begin(), vvend=_VVertices.end();
+        vv!=vvend;
+        vv++)
+    {
+        if(iViewVertex == (*vv))
+        {
+            _VVertices.erase(vv);
+            break;
+        }
+    }
 }
 
 /**********************************/

@@ -330,11 +330,13 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 		controller->setComputeRidgesAndValleysFlag((config->flags & FREESTYLE_RIDGES_AND_VALLEYS_FLAG) ? true : false);
 		controller->setComputeSuggestiveContoursFlag((config->flags & FREESTYLE_SUGGESTIVE_CONTOURS_FLAG) ? true : false);
 		controller->setComputeMaterialBoundariesFlag((config->flags & FREESTYLE_MATERIAL_BOUNDARIES_FLAG) ? true : false);
+        controller->setComputeSurfaceIntersectionsFlag((config->flags & FREESTYLE_SURFACE_INTERSECTIONS_FLAG) ? true : false);
 		break;
 	case FREESTYLE_CONTROL_EDITOR_MODE:
 		int use_ridges_and_valleys = 0;
 		int use_suggestive_contours = 0;
 		int use_material_boundaries = 0;
+        int use_surface_intersections = 0;
 		struct edge_type_condition conditions[] = {
 			{FREESTYLE_FE_SILHOUETTE, 0},
 			{FREESTYLE_FE_BORDER, 0},
@@ -342,6 +344,7 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 			{FREESTYLE_FE_RIDGE_VALLEY, 0},
 			{FREESTYLE_FE_SUGGESTIVE_CONTOUR, 0},
 			{FREESTYLE_FE_MATERIAL_BOUNDARY, 0},
+            {FREESTYLE_FE_SURFACE_INTERSECTION, 0},
 			{FREESTYLE_FE_CONTOUR, 0},
 			{FREESTYLE_FE_EXTERNAL_CONTOUR, 0},
 			{FREESTYLE_FE_EDGE_MARK, 0}
@@ -400,10 +403,15 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 						++use_suggestive_contours;
 					}
 					if (test_edge_type_conditions(conditions, num_edge_types, logical_and,
-					                              FREESTYLE_FE_MATERIAL_BOUNDARY, true))
+                                                  FREESTYLE_FE_MATERIAL_BOUNDARY, true))
 					{
 						++use_material_boundaries;
 					}
+                    if (test_edge_type_conditions(conditions, num_edge_types, logical_and,
+                                                  FREESTYLE_FE_SURFACE_INTERSECTION, true))
+                    {
+                        ++use_surface_intersections;
+                    }
 				}
 				layer_count++;
 			}
@@ -411,6 +419,7 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 		controller->setComputeRidgesAndValleysFlag(use_ridges_and_valleys > 0);
 		controller->setComputeSuggestiveContoursFlag(use_suggestive_contours > 0);
 		controller->setComputeMaterialBoundariesFlag(use_material_boundaries > 0);
+        controller->setComputeSurfaceIntersectionsFlag(use_surface_intersections > 0);
 		break;
 	}
 
@@ -429,6 +438,8 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 	                              FREESTYLE_ALGO_CULLED_ADAPTIVE_CUMULATIVE :
 	                              FREESTYLE_ALGO_ADAPTIVE_CUMULATIVE);
 
+    controller->setUseConsistency((config->flags & FREESTYLE_USE_CONSISTENCY) ? true : false);
+
 	if (G.debug & G_DEBUG_FREESTYLE) {
 		cout << "Crease angle : " << controller->getCreaseAngle() << endl;
 		cout << "Sphere radius : " << controller->getSphereRadius() << endl;
@@ -441,6 +452,8 @@ static void prepare(Render *re, SceneRenderLayer *srl)
 		        controller->getSuggestiveContourKrDerivativeEpsilon() << endl;
 		cout << "Material boundaries : " <<
 		        (controller->getComputeMaterialBoundariesFlag() ? "enabled" : "disabled") << endl;
+        cout << "Surface self-intersections : " <<
+                (controller->getComputeSurfaceIntersectionsFlag() ? "enabled" : "disabled") << endl;
 		cout << endl;
 	}
 

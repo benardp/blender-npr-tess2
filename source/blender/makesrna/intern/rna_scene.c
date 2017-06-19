@@ -3479,6 +3479,11 @@ static void rna_def_freestyle_settings(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Material Boundary", "Select edges at material boundaries");
 	RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_freestyle_update");
 
+    prop = RNA_def_property(srna, "select_surface_intersection", PROP_BOOLEAN, PROP_NONE);
+    RNA_def_property_boolean_sdna(prop, NULL, "edge_types", FREESTYLE_FE_SURFACE_INTERSECTION);
+    RNA_def_property_ui_text(prop, "Surface Intersections", "Select edges at surface intersections");
+    RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_freestyle_update");
+
 	prop = RNA_def_property(srna, "select_contour", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "edge_types", FREESTYLE_FE_CONTOUR);
 	RNA_def_property_ui_text(prop, "Contour", "Select contours (outer silhouettes of each object)");
@@ -3530,6 +3535,12 @@ static void rna_def_freestyle_settings(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Material Boundary", "Exclude edges at material boundaries");
 	RNA_def_property_ui_icon(prop, ICON_X, 0);
 	RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_freestyle_update");
+
+    prop = RNA_def_property(srna, "exclude_surface_intersection", PROP_BOOLEAN, PROP_NONE);
+    RNA_def_property_boolean_sdna(prop, NULL, "exclude_edge_types", FREESTYLE_FE_SURFACE_INTERSECTION);
+    RNA_def_property_ui_text(prop, "Surface intersections", "Exclude edges at surface intersections");
+    RNA_def_property_ui_icon(prop, ICON_X, 0);
+    RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_freestyle_update");
 
 	prop = RNA_def_property(srna, "exclude_contour", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "exclude_edge_types", FREESTYLE_FE_CONTOUR);
@@ -3639,6 +3650,11 @@ static void rna_def_freestyle_settings(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "View Map Cache",
 	                         "Keep the computed view map and avoid re-calculating it if mesh geometry is unchanged");
 	RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_use_view_map_cache_update");
+
+    prop = RNA_def_property(srna, "use_consistency", PROP_BOOLEAN, PROP_NONE);
+    RNA_def_property_boolean_sdna(prop, NULL, "flags", FREESTYLE_USE_CONSISTENCY);
+    RNA_def_property_ui_text(prop, "Use consistency", "Use consistency");
+    RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_Scene_freestyle_update");
 
 	prop = RNA_def_property(srna, "sphere_radius", PROP_FLOAT, PROP_NONE);
 	RNA_def_property_float_sdna(prop, NULL, "sphere_radius");

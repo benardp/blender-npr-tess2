@@ -22,6 +22,8 @@
 #include <vector>
 #include <numeric>
 #include <algorithm>
+#include <limits>
+#include <assert.h>
 
 
 namespace carve {

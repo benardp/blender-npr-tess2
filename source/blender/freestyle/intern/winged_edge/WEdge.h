@@ -69,6 +69,7 @@ class WVertex
 protected:
 	int _Id; // an identificator
 	Vec3f _Vertex;
+    Vec3f _Normal;
 	vector<WEdge*> _EdgeList;
 	WShape *_Shape; // the shape to which the vertex belongs
 	bool _Smooth; // flag to indicate whether the Vertex belongs to a smooth edge or not
@@ -97,6 +98,11 @@ public:
 		return _Vertex;
 	}
 
+    inline Vec3f& GetNormal()
+    {
+        return _Normal;
+    }
+
 	inline vector<WEdge*>& GetEdges()
 	{
 		return _EdgeList;
@@ -124,6 +130,11 @@ public:
 	{
 		_Vertex = v;
 	}
+
+    inline void setNormal(const Vec3f& n)
+    {
+        _Normal = n;
+    }
 
 	inline void setEdges(const vector<WEdge *>& iEdgeList)
 	{
@@ -562,7 +573,7 @@ public:
 	{
 		_paOEdge = NULL;
 		_pbOEdge = NULL;
-		_nOEdges = 0;
+        _nOEdges = 0;
 		userdata = NULL;
 	}
 
@@ -570,7 +581,7 @@ public:
 	{
 		_paOEdge = iOEdge;
 		_pbOEdge = NULL;
-		_nOEdges = 1;
+        _nOEdges = 1;
 		userdata = NULL;
 	}
 
@@ -578,7 +589,7 @@ public:
 	{
 		_paOEdge = iaOEdge;
 		_pbOEdge = ibOEdge;
-		_nOEdges = 2;
+        _nOEdges = 2;
 		userdata = NULL;
 	}
 

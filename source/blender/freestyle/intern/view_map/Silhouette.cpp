@@ -27,6 +27,7 @@
 
 #include "Silhouette.h"
 #include "ViewMap.h"
+#include "../winged_edge/WEdge.h"
 
 namespace Freestyle {
 
@@ -315,6 +316,17 @@ real FEdge::z_discontinuity() const
 	return res;
 	//return fabs((middle.z() - _occludeeIntersection.z()));
 }
+
+WFace * FEdgeSharp::getaFace()
+{
+    return _edge->GetaFace();
+}
+
+WFace * FEdgeSharp::getbFace()
+{
+    return _edge->GetbFace();
+}
+
 
 #if 0
 float FEdge::local_average_depth(int iCombination ) const

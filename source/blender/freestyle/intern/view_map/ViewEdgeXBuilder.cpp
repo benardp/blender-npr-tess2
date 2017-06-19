@@ -470,6 +470,7 @@ FEdge *ViewEdgeXBuilder::BuildSmoothFEdge(FEdge *feprevious, const OWXFaceLayer&
 		na.normalize();
 		va->AddNormal(na);
 		normal = na;
+        va->setSourceEdge(se->woea()->GetOwner());
 
 		// Set CurvatureInfo
 		CurvatureInfo *curvature_info_a =
@@ -496,6 +497,7 @@ FEdge *ViewEdgeXBuilder::BuildSmoothFEdge(FEdge *feprevious, const OWXFaceLayer&
 	nb.normalize();
 	normal += nb;
 	vb->AddNormal(nb);
+    vb->setSourceEdge(se->woeb()->GetOwner());
 
 	// Set CurvatureInfo
 	CurvatureInfo *curvature_info_b =
@@ -630,20 +632,26 @@ OWXEdge ViewEdgeXBuilder::FindPreviousWEdge(const OWXEdge& iEdge)
 
 FEdge *ViewEdgeXBuilder::BuildSharpFEdge(FEdge *feprevious, const OWXEdge& iwe)
 {
-	SVertex *va, *vb;
+    SVertex *va, *vb;
+    WXVertex *wxVA, *wxVB;
 	FEdgeSharp *fe;
-	Vec3r vA, vB;
-	if (iwe.order) {
-		vA = iwe.e->GetaVertex()->GetVertex();
-		vB = iwe.e->GetbVertex()->GetVertex();
+    Vec3r vA, vB;
+    if (iwe.order) {
+        wxVA = (WXVertex*)iwe.e->GetaVertex();
+        wxVB = (WXVertex*)iwe.e->GetbVertex();
 	}
 	else {
-		vA = iwe.e->GetbVertex()->GetVertex();
-		vB = iwe.e->GetaVertex()->GetVertex();
+        wxVA = (WXVertex*)iwe.e->GetbVertex();
+        wxVB = (WXVertex*)iwe.e->GetaVertex();
 	}
 	// Make the 2 SVertex
-	va = MakeSVertex(vA, true);
-	vb = MakeSVertex(vB, true);
+    vA = wxVA->GetVertex();
+    vB = wxVB->GetVertex();
+
+    va = MakeSVertex(vA, true);
+    vb = MakeSVertex(vB, true);
+    va->setSourceVertex(wxVA);
+    vb->setSourceVertex(wxVB);
 
 	// get the faces normals and the material indices
 	Vec3r normalA, normalB;
@@ -679,6 +687,7 @@ FEdge *ViewEdgeXBuilder::BuildSharpFEdge(FEdge *feprevious, const OWXEdge& iwe)
 	fe->setbFaceMark(faceMarkB);
 	fe->setNormalA(normalA);
 	fe->setNormalB(normalB);
+        fe->setEdge(iwe.e);
 	fe->setPreviousEdge(feprevious);
 	if (feprevious)
 		feprevious->setNextEdge(fe);
