@@ -269,7 +269,7 @@ void FEdgeXDetector::processSilhouetteShape(WXShape *iWShape)
 	vector<WEdge*>::iterator we, weend;
 	vector<WEdge*> &wedges = iWShape->getEdgeList();
 	for (we = wedges.begin(), weend = wedges.end(); we != weend; ++we) {
-		ProcessSilhouetteEdge((WXEdge *)(*we));
+        ProcessSilhouetteEdge((WXEdge *)(*we));
 	}
 }
 
@@ -282,11 +282,20 @@ void FEdgeXDetector::ProcessSilhouetteFace(WXFace *iFace)
 	int closestPointId = 0;
 	float dist, minDist = FLT_MAX;
 	int numVertices = iFace->numberOfVertices();
+
+    if(!_faceSmoothness){
+        // Use per face normal
+        normal = (iFace->GetVertex(2)->GetVertex() - iFace->GetVertex(0)->GetVertex()) ^ (iFace->GetVertex(1)->GetVertex() - iFace->GetVertex(0)->GetVertex());
+        normal.normalize();
+    }
+
 	WXFaceLayer *faceLayer = new WXFaceLayer(iFace, Nature::SILHOUETTE, true);
 	for (int i = 0; i < numVertices; i++) {
-		point = iFace->GetVertex(i)->GetVertex();
-		normal = iFace->GetVertexNormal(i);
-		normal.normalize();
+        point = iFace->GetVertex(i)->GetVertex();
+        if(_faceSmoothness) {
+            normal = iFace->GetVertexNormal(i);
+            normal.normalize();
+        }
 		Vec3f V;
 		if (_orthographicProjection) {
 			V = Vec3f(0.0f, 0.0f, _Viewpoint.z() - point.z());
@@ -325,22 +334,26 @@ void FEdgeXDetector::ProcessSilhouetteEdge(WXEdge *iEdge)
 		return;
 	// SILHOUETTE ?
 	//-------------
-	WXFace *fA = (WXFace *)iEdge->GetaOEdge()->GetaFace();
-	WXFace *fB = (WXFace *)iEdge->GetaOEdge()->GetbFace();
+    WXFace *fA = (WXFace *)iEdge->GetaOEdge()->GetaFace();
+    WXFace *fB = (WXFace *)iEdge->GetaOEdge()->GetbFace();
 
-        if((fA->front(_useConsistency))^(fB->front(_useConsistency))){  // fA->visible XOR fB->visible (true if one is 0 and the other is 1)
-		// The only edges we want to set as silhouette edges in this way are the ones with 2 different normals
-		// for 1 vertex for these two faces
-		//--------------------
-		// In reality we only test the normals for 1 of the 2 vertices.
-		if (fA->GetVertexNormal(iEdge->GetaVertex()) == fB->GetVertexNormal(iEdge->GetaVertex()))
-			return;
-		iEdge->AddNature(Nature::SILHOUETTE);
-                if (fB->front(_useConsistency))
-			iEdge->setOrder(1);
-		else
-			iEdge->setOrder(-1);
-	}
+    if((fA->front(_useConsistency))^(fB->front(_useConsistency))){  // fA->visible XOR fB->visible (true if one is 0 and the other is 1)
+        // The only edges we want to set as silhouette edges in this way are the ones with 2 different normals
+        // for 1 vertex for these two faces
+        //--------------------
+        // In reality we only test the normals for 1 of the 2 vertices.
+        if(_faceSmoothness &&
+                fA->GetVertexNormal(iEdge->GetaVertex()) == fB->GetVertexNormal(iEdge->GetaVertex()) &&
+                fA->GetVertexNormal(iEdge->GetbVertex()) == fB->GetVertexNormal(iEdge->GetbVertex()) &&
+                fA->GetVertexNormal(iEdge->GetaVertex()) != fA->GetVertexNormal(iEdge->GetbVertex()))
+                // added second and third conditions
+            return;
+        iEdge->AddNature(Nature::SILHOUETTE);
+        if (fB->front(_useConsistency))
+            iEdge->setOrder(1);
+        else
+            iEdge->setOrder(-1);
+    }
 }
 
 // BORDER

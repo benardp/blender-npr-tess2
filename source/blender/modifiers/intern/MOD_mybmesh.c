@@ -23,7 +23,7 @@
  *  \ingroup modifiers
  */
 
-/* This code is based of the tessellation part of the paper
+/* This code is based on the tessellation part of the paper
  * "Computing Smooth Surface Contours with Accurate Topology"
  * (Pierre Bénard, Aaron Hertzmann, Michael Kass).
  * Currently available at:
@@ -1447,21 +1447,21 @@ static void contour_insertion( MeshData *m_d ) {
 	}
 }
 
+bool sign_cross(const bool bool_arr[3]){
+    int i;
+    bool temp = bool_arr[0];
+    for(i = 1; i < 3; i++){
+        if(temp != bool_arr[i]){
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool cusp_triangle(struct OpenSubdiv_EvaluatorDescr *eval, const float cam_loc[3], const int face_index, Cusp_triang *c_tri, Cusp *cusp){
 
 		GSQueue *tri_que = BLI_gsqueue_new(sizeof(Cusp_triang));
         BLI_gsqueue_pushback(tri_que, c_tri);
-
-		bool sign_cross(const bool bool_arr[3]){
-			int i;
-			bool temp = bool_arr[0];
-			for(i = 1; i < 3; i++){
-				if(temp != bool_arr[i]){
-					return true;
-				}
-			}
-			return false;
-		}
 
 		//Add this because it seems to get stuck sometimes because the triangles never becomes small enough
 		//TODO maybe find a better end condition?
@@ -2966,7 +2966,7 @@ static void optimization( MeshData *m_d ){
 				BM_ITER_ELEM (face, &iter_f, vert, BM_FACES_OF_VERT) {
 					//TODO mark inconsistent faces in an other way
 					// and only check each face once
-					if(face->mat_nr == 5){
+                    if(face->mat_nr == 5){
 						//Already added this face to inco_faces
 						continue;
 					}
@@ -2996,7 +2996,7 @@ static void optimization( MeshData *m_d ){
 						IncoFace inface;
 						inface.face = face;
 						inface.back_f = b_f;
-						face->mat_nr = 5;
+                        face->mat_nr = 5;
 						BLI_buffer_append(&inco_faces, IncoFace, inface);
 					}
 
@@ -3607,7 +3607,7 @@ static void optimization( MeshData *m_d ){
 				//Already fixed this edge
 				continue;
 			}
-			inface->face->mat_nr = 4;
+            inface->face->mat_nr = 5;
 		}
 	}
 
@@ -3679,21 +3679,101 @@ static void recalc_face_normals(BMesh *bm){
 	}
 }
 
+static short calc_facing(BMVert *v, const float cam_loc[3]){
+    float ndotv = get_facing_dir_nor(cam_loc, v->co, v->no);
+
+    if(ndotv > 1e-14)
+        return 0;
+
+    if(ndotv < -1e-14)
+        return 1;
+
+    return 4;
+}
+
+static short calc_facing2(MeshData *m_d, BMVert *v, const float cam_loc[3]){
+
+    int vert_i;
+    for(vert_i = 0; vert_i < m_d->C_verts->count; vert_i++){
+        BMVert* C_vert = BLI_buffer_at(m_d->C_verts, BMVert*, vert_i);
+        if( v == C_vert){
+            return 4;
+        }
+    }
+
+    return calc_facing(v, cam_loc);
+}
+
+
+
+static short vertex_based_facing(BMFace *f, const float cam_loc[3]){
+    BMLoop *l;
+    BMVert *v1 = (l = BM_FACE_FIRST_LOOP(f))->v;
+    BMVert *v2 = (l = l->next)->v;
+    BMVert *v3 = (l->next)->v;
+
+    const short ft[3] = { calc_facing(v1, cam_loc),
+                          calc_facing(v2, cam_loc),
+                          calc_facing(v3, cam_loc) };
+
+    short result = 4;
+    for(int i=0;i<3;i++)
+    {
+        if (ft[i] == 4)
+            continue;
+
+        if (result != 4 && ft[i] != result)
+            return 4;
+
+        result = ft[i];
+    }
+
+    return result;
+}
+
+static short vertex_based_facing2(MeshData *m_d, BMFace *f, const float cam_loc[3]){
+    BMLoop *l;
+    BMVert *v1 = (l = BM_FACE_FIRST_LOOP(f))->v;
+    BMVert *v2 = (l = l->next)->v;
+    BMVert *v3 = (l->next)->v;
+
+    const short ft[3] = { calc_facing2(m_d, v1, cam_loc),
+                          calc_facing2(m_d, v2, cam_loc),
+                          calc_facing2(m_d, v3, cam_loc) };
+
+    short result = 4;
+    for(int i=0;i<3;i++)
+    {
+        if (ft[i] == 4)
+            continue;
+
+        if (result != 4 && ft[i] != result)
+            return 4;
+
+        result = ft[i];
+    }
+
+    return result;
+}
+
 static void debug_colorize(BMesh *bm, const float cam_loc[3]){
 	BMIter iter;
 	BMFace *f;
 	float P[3];
 
 	BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH){
-		if( f->mat_nr == 4 ){
-			continue;
-		}
-		BM_face_calc_center_mean(f, P);
-		if( calc_if_B_nor(cam_loc, P, f->no) ){
-			f->mat_nr = 1;
-		} else {
-			f->mat_nr = 0;
-		}
+//		if( f->mat_nr == 4 ){
+//			continue;
+//		}
+
+//		BM_face_calc_center_mean(f, P);
+//		if( calc_if_B_nor(cam_loc, P, f->no) ){
+//			f->mat_nr = 1;
+//		} else {
+//			f->mat_nr = 0;
+//		}
+
+        f->mat_nr = vertex_based_facing(f, cam_loc);
 	}
 }
 
@@ -3719,15 +3799,18 @@ static void debug_colorize_radi( MeshData *m_d ){
 			if( !(BM_elem_index_get(edge_vert) < m_d->radi_start_idx) ){
 				//This is a radial/CC edge vert.
 				BM_ITER_ELEM (f, &iter, e, BM_FACES_OF_EDGE){
-					if( f->mat_nr == 4 ){
-						continue;
-					}
-					BM_face_calc_center_mean(f, P);
-					if( calc_if_B_nor(m_d->cam_loc, P, f->no) ){
-						f->mat_nr = 3;
-					} else {
-						f->mat_nr = 2;
-					}
+//                    if( f->mat_nr == 5 ){
+//						continue;
+//					}
+//					BM_face_calc_center_mean(f, P);
+//					if( calc_if_B_nor(m_d->cam_loc, P, f->no) ){
+//						f->mat_nr = 3;
+//					} else {
+//						f->mat_nr = 2;
+//					}
+                    f->mat_nr = vertex_based_facing2(m_d, f, m_d->cam_loc);
+                    if(f->mat_nr != 4)
+                        f->mat_nr += 2;
 				}
 			}
 		}
@@ -3879,6 +3962,12 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 
 		// (6.4) Optimization
 		if (mmd->flag & MOD_MYBMESH_OPTI){
+            BMIter iter;
+            BMFace *f;
+            BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH){
+                f->processed = false;
+            }
+
 			optimization(&mesh_data);
 			//Recalculate normals
 			recalc_face_normals(bm);
