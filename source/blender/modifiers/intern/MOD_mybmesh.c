@@ -3682,13 +3682,13 @@ static void recalc_face_normals(BMesh *bm){
 static short calc_facing(BMVert *v, const float cam_loc[3]){
     float ndotv = get_facing_dir_nor(cam_loc, v->co, v->no);
 
-    if(ndotv > 1e-14)
+    if(ndotv > 1e-14) // FRONT
         return 0;
 
-    if(ndotv < -1e-14)
+    if(ndotv < -1e-14) // BACK
         return 1;
 
-    return 4;
+    return 4; // CONTOUR
 }
 
 static short calc_facing2(MeshData *m_d, BMVert *v, const float cam_loc[3]){
@@ -3697,15 +3697,16 @@ static short calc_facing2(MeshData *m_d, BMVert *v, const float cam_loc[3]){
     for(vert_i = 0; vert_i < m_d->C_verts->count; vert_i++){
         BMVert* C_vert = BLI_buffer_at(m_d->C_verts, BMVert*, vert_i);
         if( v == C_vert){
-            return 4;
+            return 4; // CONTOUR
         }
     }
 
     return calc_facing(v, cam_loc);
 }
 
-
-
+// The face orientation according to the vertices of the face; 4 if the face is not vertex-consistent
+// e.g., for a face that's CCF, CFF, FFF, return 0; for CCB, CBB, BBB, return 1; otherwise return 4.
+// (The actual orientation of the face is irrelevant.)
 static short vertex_based_facing(BMFace *f, const float cam_loc[3]){
     BMLoop *l;
     BMVert *v1 = (l = BM_FACE_FIRST_LOOP(f))->v;
@@ -3723,7 +3724,7 @@ static short vertex_based_facing(BMFace *f, const float cam_loc[3]){
             continue;
 
         if (result != 4 && ft[i] != result)
-            return 4;
+            return 4; // INCONSISTENT
 
         result = ft[i];
     }
@@ -3748,7 +3749,7 @@ static short vertex_based_facing2(MeshData *m_d, BMFace *f, const float cam_loc[
             continue;
 
         if (result != 4 && ft[i] != result)
-            return 4;
+            return 4; // INCONSITENT
 
         result = ft[i];
     }
@@ -3964,9 +3965,6 @@ static DerivedMesh *mybmesh_do(DerivedMesh *dm, MyBMeshModifierData *mmd, float 
 		if (mmd->flag & MOD_MYBMESH_OPTI){
             BMIter iter;
             BMFace *f;
-            BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH){
-                f->processed = false;
-            }
 
 			optimization(&mesh_data);
 			//Recalculate normals
